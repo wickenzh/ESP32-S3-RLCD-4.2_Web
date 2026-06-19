@@ -45,6 +45,10 @@ let selectedImagePreviewIndex = 0;
 let gifPreviewTimer;
 let gifPreviewFrames = [];
 let gifOriginalUrl;
+let gifFrameCacheFile;
+let gifFrameCacheFrames;
+let gifRealtimeTimer;
+let imageRealtimeTimer;
 
 function setGifOriginalPreview(file) {
   if (gifOriginalUrl) URL.revokeObjectURL(gifOriginalUrl);
@@ -394,6 +398,13 @@ async function decodeGifFrames(file) {
   return Array.from({ length: GIF_FRAMES }, () => fallback);
 }
 
+async function getGifFrames(file) {
+  if (gifFrameCacheFile === file && gifFrameCacheFrames) return gifFrameCacheFrames;
+  gifFrameCacheFile = file;
+  gifFrameCacheFrames = await decodeGifFrames(file);
+  return gifFrameCacheFrames;
+}
+
 function sampleEvenlyByIndex(sourceCount, targetCount) {
   if (sourceCount <= 1) return Array.from({ length: targetCount }, () => 0);
   return Array.from({ length: targetCount }, (_item, index) => Math.min(sourceCount - 1, Math.floor(index * sourceCount / targetCount)));
@@ -646,7 +657,7 @@ async function decodeGifFramesLocally(bytes) {
   return sampleGifTimeline(frames, GIF_FRAMES);
 }
 
-async function convertGif() {
+async function convertGif({ realtime = false } = {}) {
   const file = $("#gifInput").files?.[0];
   if (!file) {
     $("#assetResult").textContent = "请先选择一个 GIF 文件。";
@@ -658,8 +669,8 @@ async function convertGif() {
   }
 
   setGifOriginalPreview(file);
-  $("#assetResult").textContent = "正在解析并转换 GIF...";
-  const frames = await decodeGifFrames(file);
+  $("#assetResult").textContent = realtime ? "正在实时更新 GIF 预览..." : "正在解析并转换 GIF...";
+  const frames = await getGifFrames(file);
   const source = $("#gifSourceCanvas");
   const preview = $("#gifPreviewCanvas");
   const sourceCtx = source.getContext("2d", { willReadFrequently: true });
@@ -699,12 +710,14 @@ async function previewSelectedGif() {
   invalidateGeneratedAssets();
   const file = $("#gifInput").files?.[0];
   if (!file) return;
+  gifFrameCacheFile = undefined;
+  gifFrameCacheFrames = undefined;
   if (file.type !== "image/gif" && !file.name.toLowerCase().endsWith(".gif")) {
     $("#assetResult").textContent = "动图区域只支持 GIF 文件。";
     return;
   }
   setGifOriginalPreview(file);
-  const frames = await decodeGifFrames(file);
+  const frames = await getGifFrames(file);
   const source = $("#gifSourceCanvas");
   const preview = $("#gifPreviewCanvas");
   const sourceCtx = source.getContext("2d", { willReadFrequently: true });
@@ -808,6 +821,37 @@ function clearImageConversions() {
   $("#assetResult").textContent = "已清除静图转换结果。已选择的静图文件仍保留，可重新转换。";
 }
 
+async function updateSelectedImageRealtimePreview({ clearConverted = true, message = true } = {}) {
+  const files = getSelectedImageFiles();
+  if (files.length === 0) {
+    updateImagePreviewSelect(files);
+    $("#imageList").textContent = "尚未选择静图。";
+    return;
+  }
+  if (clearConverted) {
+    convertedImages = [];
+    invalidateGeneratedAssets();
+  }
+  updateImagePreviewSelect(files);
+  const image = await loadImageBitmapFromFile(files[selectedImagePreviewIndex]);
+  const source = $("#imageSourceCanvas");
+  const preview = $("#imagePreviewCanvas");
+  const sourceCtx = source.getContext("2d", { willReadFrequently: true });
+  drawFittedImage(sourceCtx, image, $("#imageFit").value, IMAGE_WIDTH, IMAGE_HEIGHT);
+  applyEdgeFade(source, Number($("#imageEdgeFade").value));
+  convertCanvasToOneBit(
+    source,
+    preview,
+    Number($("#imageThreshold").value),
+    $("#imageDither").checked,
+    $("#imageInvert").checked
+  );
+  updateImageList(files);
+  if (message) {
+    $("#assetResult").textContent = `已按当前参数实时预览第 ${selectedImagePreviewIndex + 1} 张。若要写入设备，请重新点击“转换静图”生成全部静图资源。`;
+  }
+}
+
 async function previewSelectedImages({ keepConverted = false } = {}) {
   if (!keepConverted) {
     convertedImages = [];
@@ -831,7 +875,13 @@ async function previewSelectedImages({ keepConverted = false } = {}) {
   if (converted) {
     previewCtx.putImageData(unpackOneBitRowsToImageData(converted.data, IMAGE_WIDTH, IMAGE_HEIGHT, previewCtx), 0, 0);
   } else {
-    previewCtx.clearRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
+    convertCanvasToOneBit(
+      source,
+      preview,
+      Number($("#imageThreshold").value),
+      $("#imageDither").checked,
+      $("#imageInvert").checked
+    );
   }
   updateImageList(files);
   if (!keepConverted) {
@@ -1288,11 +1338,33 @@ sendForm.addEventListener("submit", async (event) => {
   serialCommand.value = "";
 });
 
-$("#gifThreshold").addEventListener("input", () => { $("#gifThresholdValue").textContent = $("#gifThreshold").value; });
-$("#imageThreshold").addEventListener("input", () => { $("#imageThresholdValue").textContent = $("#imageThreshold").value; });
+function scheduleGifRealtimePreview() {
+  if (!$("#gifInput").files?.[0]) return;
+  clearTimeout(gifRealtimeTimer);
+  gifRealtimeTimer = setTimeout(() => {
+    convertGif({ realtime: true }).catch((error) => { $("#assetResult").textContent = `GIF 实时预览失败：${error.message}`; });
+  }, 220);
+}
+
+function scheduleImageRealtimePreview() {
+  if (getSelectedImageFiles().length === 0) return;
+  clearTimeout(imageRealtimeTimer);
+  imageRealtimeTimer = setTimeout(() => {
+    updateSelectedImageRealtimePreview().catch((error) => { $("#assetResult").textContent = `静图实时预览失败：${error.message}`; });
+  }, 120);
+}
+
+$("#gifThreshold").addEventListener("input", () => {
+  $("#gifThresholdValue").textContent = $("#gifThreshold").value;
+  scheduleGifRealtimePreview();
+});
+$("#imageThreshold").addEventListener("input", () => {
+  $("#imageThresholdValue").textContent = $("#imageThreshold").value;
+  scheduleImageRealtimePreview();
+});
 $("#imageEdgeFade").addEventListener("input", () => {
   $("#imageEdgeFadeValue").textContent = $("#imageEdgeFade").value;
-  previewSelectedImages({ keepConverted: convertedImages.length > 0 }).catch((error) => { $("#assetResult").textContent = `静图预览失败：${error.message}`; });
+  scheduleImageRealtimePreview();
 });
 $("#gifInput").addEventListener("change", () => {
   previewSelectedGif().catch((error) => { $("#assetResult").textContent = `GIF 预览失败：${error.message}`; });
@@ -1302,11 +1374,15 @@ $("#imageInput").addEventListener("change", () => {
   previewSelectedImages().catch((error) => { $("#assetResult").textContent = `静图预览失败：${error.message}`; });
 });
 $("#gifFit").addEventListener("change", () => {
-  previewSelectedGif().catch((error) => { $("#assetResult").textContent = `GIF 预览失败：${error.message}`; });
+  scheduleGifRealtimePreview();
 });
 $("#imageFit").addEventListener("change", () => {
-  previewSelectedImages().catch((error) => { $("#assetResult").textContent = `静图预览失败：${error.message}`; });
+  scheduleImageRealtimePreview();
 });
+$("#gifDither").addEventListener("change", scheduleGifRealtimePreview);
+$("#gifInvert").addEventListener("change", scheduleGifRealtimePreview);
+$("#imageDither").addEventListener("change", scheduleImageRealtimePreview);
+$("#imageInvert").addEventListener("change", scheduleImageRealtimePreview);
 $("#imagePreviewSelect").addEventListener("change", () => {
   selectedImagePreviewIndex = Number($("#imagePreviewSelect").value) || 0;
   previewSelectedImages({ keepConverted: convertedImages.length > 0 }).catch((error) => { $("#assetResult").textContent = `静图预览失败：${error.message}`; });
