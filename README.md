@@ -16,16 +16,13 @@ https://<username>.github.io/<host-repo>/
 
 `assets/` 中的预览图已经包含在上位机目录内，不依赖本项目仓库的其他路径。
 
-## 本地预览
+## 在线预览
 
-Web Serial 需要安全上下文。本地开发请使用 HTTPS 预览：
+当前 GitHub Pages 访问地址：
 
-```sh
-cd host_web
-node dev_https_server.mjs
+```text
+https://wickenzh.github.io/ESP32-S3-RLCD-4.2_Web/
 ```
-
-首次启动会自动生成 `.dev_certs/` 下的自签名证书。浏览器打开 `https://127.0.0.1:4173/` 后，需要手动信任本地证书提示。
 
 ## 当前功能
 
@@ -33,20 +30,26 @@ node dev_https_server.mjs
 - 图片资源制作：静图支持 JPG、PNG、WebP、BMP 等浏览器可读图片，转换为 `220×208`、1-bit packed。
 - GIF 资源制作：动图只支持 GIF，转换为 `84×84`、60 帧、整帧连续 1-bit bitstream。
 - 资源写入：生成 `custom_assets.bin` 后，通过串口写入设备 `assets` 分区 `0xC20000`，显示写入进度。
-- 固件烧录：用户自行选择完整 merged bin，通过串口从 `0x0` 写入设备，显示烧录进度。
+- 固件烧录：默认从 `wickenzh/ESP32-S3-RLCD-4.2_UP` 的 `firmware/latest.json` 选择在线 merged bin，下载后校验 SHA-256，通过后才允许串口烧录；也支持用户自行选择完整 merged bin。
 - 离线缓存，便于打开页面后再切换到设备 AP。
 
-## 完整烧录目录
+## 在线固件仓库
 
-专用 Pages 仓库建议放置：
+默认固件来源：
 
 ```text
-firmware/
-  manifest.json
-  weather_clock_vX.X.X_merged.bin
+https://github.com/wickenzh/ESP32-S3-RLCD-4.2_UP
 ```
 
-`firmware/manifest.example.json` 是当前项目的 ESP32-S3 完整烧录示例。ESP Web Tools 对 ESP-IDF v4+ 固件推荐使用 `esptool merge_bin` 生成的单个 merged bin，并写入 `0x0`。
+网页读取：
+
+```text
+https://raw.githubusercontent.com/wickenzh/ESP32-S3-RLCD-4.2_UP/main/firmware/latest.json
+```
+
+`latest.json` 需要提供 `version`、`url`、`sha256`、`size` 字段。网页下载固件后会计算 SHA-256，只有与清单一致才会启用烧录。
+
+`firmware/manifest.example.json` 是 ESP Web Tools 示例。ESP-IDF v4+ 固件推荐使用 `esptool merge_bin` 生成的单个 merged bin，并写入 `0x0`。
 
 当前完整镜像由这些构建产物合并而来，默认偏移来自 `RLCD_CLOCK/build/flash_args`：
 

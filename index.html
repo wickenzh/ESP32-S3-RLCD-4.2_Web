@@ -183,9 +183,22 @@
 
       <section id="firmware" class="tab-panel">
         <div class="form-grid">
+          <label>
+            <span>固件来源</span>
+            <select id="firmwareSource">
+              <option value="remote" selected>GitHub 固件仓库</option>
+              <option value="local">自定义固件文件</option>
+            </select>
+          </label>
+          <label>
+            <span>在线固件</span>
+            <select id="remoteFirmwareSelect">
+              <option value="">正在加载固件清单</option>
+            </select>
+          </label>
           <label class="wide-field file-picker">
-            <span>选择完整固件 merged bin</span>
-            <input id="firmwareInput" type="file" accept=".bin,application/octet-stream">
+            <span>选择自定义 merged bin</span>
+            <input id="firmwareInput" type="file" accept=".bin,application/octet-stream" disabled>
           </label>
           <label>
             <span>写入地址</span>
@@ -202,6 +215,8 @@
           </label>
         </div>
         <div class="action-strip">
+          <button id="refreshFirmwareBtn" class="secondary-button" type="button">刷新在线固件</button>
+          <button id="downloadFirmwareBtn" class="secondary-button" type="button">下载并校验固件</button>
           <button id="writeFirmwareBtn" class="primary-button" type="button" disabled>串口烧录固件</button>
           <button id="loadInstallerBtn" class="secondary-button" type="button">网页烧录器备用入口</button>
         </div>
@@ -210,7 +225,7 @@
           <div class="progress-head"><span id="firmwareWriteState">等待固件文件</span><strong id="firmwareWritePercent">0%</strong></div>
           <progress id="firmwareWriteProgress" value="0" max="100"></progress>
         </div>
-        <output id="flashResult" class="output-box">请选择发布附件中的 merged bin 进行完整烧录。首次从旧分区表升级到 OTA/assets 分区时，请使用完整烧录。</output>
+        <output id="flashResult" class="output-box">默认使用 GitHub 固件仓库中的最新 merged bin。在线固件下载后必须通过 SHA-256 校验才允许烧录，也可以切换为自定义固件文件。</output>
       </section>
     </section>
   </main>

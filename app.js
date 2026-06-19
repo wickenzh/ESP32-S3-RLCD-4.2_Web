@@ -12,6 +12,7 @@ const GIF_FRAMES = 60;
 const IMAGE_WIDTH = 220;
 const IMAGE_HEIGHT = 208;
 const MAX_IMAGES = 24;
+const FIRMWARE_MANIFEST_URL = "https://raw.githubusercontent.com/wickenzh/ESP32-S3-RLCD-4.2_UP/main/firmware/latest.json";
 
 const serialSupport = $("#serialSupport");
 const connectSerialBtn = $("#connectSerialBtn");
@@ -38,6 +39,8 @@ let convertedGif;
 let convertedImages = [];
 let generatedAssetPackage;
 let selectedFirmware;
+let remoteFirmwareManifest;
+let verifiedFirmwareData;
 let selectedImagePreviewIndex = 0;
 let gifPreviewTimer;
 let gifPreviewFrames = [];
@@ -930,6 +933,100 @@ function downloadLog() {
   downloadBlob(new Blob([serialLog.textContent], { type: "text/plain;charset=utf-8" }), `weather-clock-serial-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
 }
 
+function hexFromBuffer(buffer) {
+  return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return hexFromBuffer(digest);
+}
+
+function setFirmwareReady(ready) {
+  $("#writeFirmwareBtn").disabled = !ready || !("serial" in navigator);
+}
+
+function formatSha(value) {
+  if (!value) return "-";
+  return `${value.slice(0, 12)}...${value.slice(-8)}`;
+}
+
+async function loadRemoteFirmwareManifest() {
+  $("#remoteFirmwareSelect").innerHTML = `<option value="">正在加载固件清单</option>`;
+  $("#firmwareWriteState").textContent = "正在加载在线固件清单";
+  setFirmwareReady(false);
+  verifiedFirmwareData = undefined;
+  selectedFirmware = undefined;
+  const response = await fetch(`${FIRMWARE_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`固件清单读取失败：HTTP ${response.status}`);
+  const manifest = await response.json();
+  if (!manifest.url || !manifest.sha256 || !manifest.size) throw new Error("固件清单缺少 url / sha256 / size 字段");
+  remoteFirmwareManifest = manifest;
+  $("#remoteFirmwareSelect").innerHTML = "";
+  const option = document.createElement("option");
+  option.value = manifest.url;
+  option.textContent = `${manifest.version || "latest"} / ${formatBytes(manifest.size)}`;
+  $("#remoteFirmwareSelect").appendChild(option);
+  $("#firmwareWriteState").textContent = `在线固件：${manifest.version || "latest"} / ${formatBytes(manifest.size)}`;
+  $("#flashResult").textContent = `在线固件已选择：${manifest.version || "latest"}，SHA-256 ${formatSha(manifest.sha256)}。请先下载并校验，通过后可烧录。`;
+}
+
+async function downloadRemoteFirmware() {
+  if (!remoteFirmwareManifest) await loadRemoteFirmwareManifest();
+  if (!remoteFirmwareManifest) return;
+  setProgress("firmwareWrite", 0, 100);
+  setFirmwareReady(false);
+  $("#firmwareWriteState").textContent = "正在下载在线固件";
+  $("#flashResult").textContent = `正在下载 ${remoteFirmwareManifest.version || "latest"}...`;
+  const response = await fetch(remoteFirmwareManifest.url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`固件下载失败：HTTP ${response.status}`);
+  const total = Number(response.headers.get("content-length")) || Number(remoteFirmwareManifest.size) || 0;
+  const chunks = [];
+  let received = 0;
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      setProgress("firmwareWrite", received, total);
+      $("#firmwareWriteState").textContent = `下载中 ${formatBytes(received)} / ${total ? formatBytes(total) : "未知大小"}`;
+    }
+  } else {
+    const buffer = await response.arrayBuffer();
+    chunks.push(new Uint8Array(buffer));
+    received = buffer.byteLength;
+  }
+  const data = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  if (remoteFirmwareManifest.size && data.byteLength !== Number(remoteFirmwareManifest.size)) {
+    throw new Error(`固件大小不匹配：${formatBytes(data.byteLength)} / ${formatBytes(Number(remoteFirmwareManifest.size))}`);
+  }
+  $("#firmwareWriteState").textContent = "正在校验 SHA-256";
+  const actualSha = await sha256Hex(data);
+  if (actualSha.toLowerCase() !== remoteFirmwareManifest.sha256.toLowerCase()) {
+    verifiedFirmwareData = undefined;
+    selectedFirmware = undefined;
+    throw new Error(`SHA-256 校验失败：${formatSha(actualSha)} != ${formatSha(remoteFirmwareManifest.sha256)}`);
+  }
+  verifiedFirmwareData = data;
+  selectedFirmware = {
+    name: `GitHub ${remoteFirmwareManifest.version || "latest"}`,
+    size: data.byteLength,
+    source: "remote",
+    sha256: actualSha
+  };
+  setProgress("firmwareWrite", 100, 100);
+  setFirmwareReady(true);
+  $("#firmwareWriteState").textContent = `校验通过：${selectedFirmware.name}`;
+  $("#flashResult").textContent = `在线固件已下载并通过 SHA-256 校验：${formatSha(actualSha)}。现在可以串口烧录。`;
+}
+
 async function importEsptool() {
   const urls = [
     "https://unpkg.com/esptool-js@0.5.6/bundle.js",
@@ -1079,7 +1176,16 @@ async function writeFirmware() {
     $("#flashResult").textContent = "写入地址无效，请使用 0x0 这样的十六进制格式。";
     return;
   }
-  const data = new Uint8Array(await selectedFirmware.arrayBuffer());
+  let data;
+  if (selectedFirmware.source === "remote") {
+    if (!verifiedFirmwareData) {
+      $("#flashResult").textContent = "在线固件尚未下载并校验，请先点击“下载并校验固件”。";
+      return;
+    }
+    data = verifiedFirmwareData;
+  } else {
+    data = new Uint8Array(await selectedFirmware.file.arrayBuffer());
+  }
   $("#firmwareWriteState").textContent = `准备写入 ${selectedFirmware.name}`;
   try {
     await writeBinaryWithEsptool({
@@ -1160,6 +1266,11 @@ bindTabs();
 bindInstall();
 setSerialSupport();
 registerServiceWorker();
+loadRemoteFirmwareManifest().catch((error) => {
+  $("#remoteFirmwareSelect").innerHTML = `<option value="">在线固件加载失败</option>`;
+  $("#firmwareWriteState").textContent = "在线固件加载失败";
+  $("#flashResult").textContent = error.message;
+});
 
 connectSerialBtn.addEventListener("click", connectSerial);
 clearLogBtn.addEventListener("click", () => {
@@ -1208,10 +1319,49 @@ $("#buildAssetsBtn").addEventListener("click", buildAssetPackage);
 $("#downloadAssetsBtn").addEventListener("click", downloadAssets);
 $("#writeAssetsBtn").addEventListener("click", writeAssets);
 $("#eraseAssetsBtn").addEventListener("click", eraseAssets);
+$("#firmwareSource").addEventListener("change", () => {
+  const source = $("#firmwareSource").value;
+  const useRemote = source === "remote";
+  $("#remoteFirmwareSelect").disabled = !useRemote;
+  $("#refreshFirmwareBtn").disabled = !useRemote;
+  $("#downloadFirmwareBtn").disabled = !useRemote;
+  $("#firmwareInput").disabled = useRemote;
+  selectedFirmware = undefined;
+  verifiedFirmwareData = undefined;
+  setFirmwareReady(false);
+  setProgress("firmwareWrite", 0, 100);
+  if (useRemote) {
+    if (remoteFirmwareManifest) {
+      $("#firmwareWriteState").textContent = `在线固件：${remoteFirmwareManifest.version || "latest"} / ${formatBytes(remoteFirmwareManifest.size)}`;
+      $("#flashResult").textContent = `在线固件已选择：${remoteFirmwareManifest.version || "latest"}。请下载并校验后烧录。`;
+    } else {
+      loadRemoteFirmwareManifest().catch((error) => { $("#flashResult").textContent = error.message; });
+    }
+  } else {
+    $("#firmwareWriteState").textContent = "等待自定义固件文件";
+    $("#flashResult").textContent = "请选择本地 merged bin 文件。自定义固件不会自动校验仓库 SHA-256。";
+  }
+});
+$("#refreshFirmwareBtn").addEventListener("click", () => {
+  loadRemoteFirmwareManifest().catch((error) => {
+    $("#firmwareWriteState").textContent = "在线固件加载失败";
+    $("#flashResult").textContent = error.message;
+  });
+});
+$("#downloadFirmwareBtn").addEventListener("click", () => {
+  downloadRemoteFirmware().catch((error) => {
+    setFirmwareReady(false);
+    $("#firmwareWriteState").textContent = "固件校验失败";
+    $("#flashResult").textContent = error.message;
+  });
+});
 $("#firmwareInput").addEventListener("change", () => {
-  selectedFirmware = $("#firmwareInput").files?.[0];
-  $("#writeFirmwareBtn").disabled = !selectedFirmware || !("serial" in navigator);
+  const file = $("#firmwareInput").files?.[0];
+  verifiedFirmwareData = undefined;
+  selectedFirmware = file ? { name: file.name, size: file.size, source: "local", file } : undefined;
+  setFirmwareReady(Boolean(selectedFirmware));
   $("#firmwareWriteState").textContent = selectedFirmware ? `${selectedFirmware.name} / ${formatBytes(selectedFirmware.size)}` : "等待固件文件";
+  $("#flashResult").textContent = selectedFirmware ? "已选择自定义固件文件。请确认来源可信后烧录。" : "请选择本地 merged bin 文件。";
 });
 $("#writeFirmwareBtn").addEventListener("click", writeFirmware);
 $("#loadInstallerBtn").addEventListener("click", () => {

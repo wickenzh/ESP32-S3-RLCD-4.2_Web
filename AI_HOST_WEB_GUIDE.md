@@ -1,12 +1,12 @@
 # WeatherClock Host Web AI Guide
 
-This document is for future AI agents or developers taking over the `codex/host-web` branch.
+This document is for future AI agents or developers taking over `host_web/`.
 
 ## Scope
 
 Work in this branch is limited to `host_web/`.
 
-Do not modify firmware, root docs, release scripts, or project README unless the user explicitly changes the scope. The host web app is intended to be copied to a dedicated GitHub Pages repository later.
+Do not modify firmware, root docs, release scripts, or project README unless the user explicitly changes the scope. Publish `host_web/` contents to the dedicated GitHub Pages repository `wickenzh/ESP32-S3-RLCD-4.2_Web`.
 
 ## Product Focus
 
@@ -58,45 +58,28 @@ The app has four tabs:
 
 - `资源制作`: Primary tab and default view. Handles GIF and still-image conversion.
 - `资源写入`: Writes generated `custom_assets.bin` to `0xC20000` over Web Serial / esptool-js.
-- `固件烧录`: Auxiliary full merged-bin flashing from `0x0`.
+- `固件烧录`: Auxiliary full merged-bin flashing from `0x0`; defaults to the GitHub firmware repository and verifies SHA-256 before flashing.
 - `串口日志`: Auxiliary serial log and manual command console.
 
 Do not reintroduce Wi-Fi provisioning, default AP/IP panels, device info sidebars, OTA manifest reading, or notes pages unless the user asks.
 
 All baud-rate selectors currently default to `115200`.
 
-## Local HTTPS Preview
+## GitHub Pages Preview
 
-Web Serial requires a secure context. Use the included HTTPS dev server:
-
-```sh
-cd host_web
-node dev_https_server.mjs
-```
-
-Open:
+Use the deployed GitHub Pages URL for preview and testing:
 
 ```text
-https://127.0.0.1:4173/
+https://wickenzh.github.io/ESP32-S3-RLCD-4.2_Web/
 ```
 
-The first visit will show a browser certificate warning because the server uses a local self-signed certificate.
-
-Generated certificates are stored in:
-
-```text
-host_web/.dev_certs/
-```
-
-That directory is ignored by `host_web/.gitignore` and must not be committed.
+Do not add local HTTP/HTTPS preview servers back into `host_web/` unless the user explicitly asks.
 
 ## Important Files
 
 - `index.html`: Static UI structure.
 - `styles.css`: Layout and visual styling.
 - `app.js`: All client-side conversion, package building, serial writing, and flashing logic.
-- `dev_https_server.mjs`: Local HTTPS development server. Prefer this over the Python fallback because it avoids TLS handshake stalls seen on some local Python builds.
-- `dev_https_server.py`: Python HTTPS development server fallback.
 - `firmware/manifest.example.json`: Example ESP Web Tools manifest for dedicated Pages deployment.
 - `README.md`: User-facing usage/deployment summary.
 
@@ -115,3 +98,4 @@ That directory is ignored by `host_web/.gitignore` and must not be committed.
 - The serial writing path relies on loading `esptool-js` from a CDN. Dedicated offline support would require vendoring the dependency in `host_web/`. `esptool-js` expects file data as a binary string, so `Uint8Array` payloads are converted before calling `writeFlash`.
 - After `writeFlash`, the app explicitly pulses serial RTS/DTR signals to reset the ESP32-S3. Keep this behavior unless hardware reset wiring changes.
 - The resource writer assumes the device already has a firmware partition table with the `assets` partition. Old firmware layouts need full firmware flashing first.
+- Firmware flashing defaults to `https://raw.githubusercontent.com/wickenzh/ESP32-S3-RLCD-4.2_UP/main/firmware/latest.json`. That manifest must include `version`, `url`, `sha256`, and `size`; the app downloads the bin, checks size and SHA-256 with Web Crypto, and only enables flashing after verification.

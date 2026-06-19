@@ -1,4 +1,4 @@
-const CACHE_NAME = "weather-clock-host-v15";
+const CACHE_NAME = "weather-clock-host-v16";
 const ASSETS = [
   "./",
   "./index.html",
