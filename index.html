@@ -41,14 +41,14 @@
           <div><span>设备写入地址</span><strong>0xC20000</strong></div>
         </div>
         <div class="asset-grid">
-          <div class="asset-card">
+          <div class="asset-card gif-asset-card">
             <h2>GIF 动图</h2>
             <label class="file-picker">
               <span>只支持 GIF 文件</span>
               <input id="gifInput" type="file" accept="image/gif">
             </label>
             <div class="mini-settings">
-              <label>
+              <label class="control-fit">
                 <span>适配方式</span>
                 <select id="gifFit">
                   <option value="cover" selected>铺满裁切</option>
@@ -56,12 +56,12 @@
                   <option value="stretch">拉伸</option>
                 </select>
               </label>
-              <label>
+              <label class="control-threshold">
                 <span>阈值 <b id="gifThresholdValue">150</b></span>
                 <input id="gifThreshold" type="range" min="0" max="255" value="150">
               </label>
-              <label class="check-row"><input id="gifDither" type="checkbox" checked> 抖动</label>
-              <label class="check-row"><input id="gifInvert" type="checkbox"> 反色</label>
+              <label class="check-row control-dither"><input id="gifDither" type="checkbox" checked> 抖动</label>
+              <label class="check-row control-invert"><input id="gifInvert" type="checkbox"> 反色</label>
             </div>
             <div class="canvas-pair small-canvas preview-band">
               <div>
@@ -79,43 +79,47 @@
             </div>
           </div>
 
-          <div class="asset-card">
+          <div class="asset-card image-asset-card">
             <h2>静图</h2>
             <label class="file-picker">
               <span>支持 JPG / PNG / WebP / BMP 等图片</span>
               <input id="imageInput" type="file" accept="image/*" multiple>
             </label>
-            <div class="mini-settings">
-              <label>
-                <span>适配方式</span>
-                <select id="imageFit">
-                  <option value="cover" selected>铺满裁切</option>
-                  <option value="contain">完整显示</option>
-                  <option value="stretch">拉伸</option>
-                </select>
-              </label>
-              <label>
-                <span>阈值 <b id="imageThresholdValue">150</b></span>
-                <input id="imageThreshold" type="range" min="0" max="255" value="150">
-              </label>
-              <label>
-                <span>边缘淡化 <b id="imageEdgeFadeValue">18</b>px</span>
-                <input id="imageEdgeFade" type="range" min="0" max="48" value="18">
-              </label>
-              <label class="check-row"><input id="imageDither" type="checkbox" checked> 抖动</label>
-              <label class="check-row"><input id="imageInvert" type="checkbox"> 反色</label>
-              <label class="wide-mini-field">
-                <span>预览图片</span>
-                <select id="imagePreviewSelect" disabled>
-                  <option value="">尚未选择静图</option>
-                </select>
-              </label>
+            <div class="image-workbench">
+              <div class="mini-settings">
+                <label class="control-fit">
+                  <span>适配方式</span>
+                  <select id="imageFit">
+                    <option value="cover" selected>铺满裁切</option>
+                    <option value="contain">完整显示</option>
+                    <option value="stretch">拉伸</option>
+                  </select>
+                </label>
+                <label class="check-row control-dither"><input id="imageDither" type="checkbox" checked> 抖动</label>
+                <label class="check-row control-invert"><input id="imageInvert" type="checkbox"> 反色</label>
+                <label class="control-threshold">
+                  <span>阈值 <b id="imageThresholdValue">150</b></span>
+                  <input id="imageThreshold" type="range" min="0" max="255" value="150">
+                </label>
+                <label class="control-edge-fade">
+                  <span>边缘淡化 <b id="imageEdgeFadeValue">18</b>px</span>
+                  <input id="imageEdgeFade" type="range" min="0" max="48" value="18">
+                </label>
+              </div>
+              <div class="canvas-pair preview-band">
+                <div><span>原图裁切</span><canvas id="imageSourceCanvas" width="220" height="208"></canvas></div>
+                <div><span>转换预览</span><canvas id="imagePreviewCanvas" width="220" height="208"></canvas></div>
+              </div>
+              <div class="image-side-panel">
+                <label>
+                  <span>预览图片</span>
+                  <select id="imagePreviewSelect" disabled>
+                    <option value="">尚未选择静图</option>
+                  </select>
+                </label>
+                <div class="asset-list" id="imageList">尚未选择静图。</div>
+              </div>
             </div>
-            <div class="canvas-pair preview-band">
-              <div><span>原图裁切</span><canvas id="imageSourceCanvas" width="220" height="208"></canvas></div>
-              <div><span>转换预览</span><canvas id="imagePreviewCanvas" width="220" height="208"></canvas></div>
-            </div>
-            <div class="asset-list" id="imageList">尚未选择静图。</div>
             <div class="action-strip">
               <button id="previewImagesBtn" class="primary-button" type="button">转换静图</button>
               <button id="clearImagesBtn" class="secondary-button" type="button">清除静图</button>
