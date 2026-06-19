@@ -1,0 +1,16 @@
+{
+  "name": "WeatherClock ESP32-S3 RLCD 4.2",
+  "version": "v1.3.14",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "weather_clock_v1.3.14_merged.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}
