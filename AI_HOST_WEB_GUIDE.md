@@ -65,6 +65,8 @@ Do not reintroduce Wi-Fi provisioning, default AP/IP panels, device info sidebar
 
 All baud-rate selectors currently default to `115200`.
 
+Update the footer version in `index.html` on every user-visible development change.
+
 ## GitHub Pages Preview
 
 Use the deployed GitHub Pages URL for preview and testing:
