@@ -566,6 +566,7 @@ input[type="range"] {
   grid-row: span 6;
   grid-template-rows: subgrid;
   gap: 12px;
+  min-width: 0;
 }
 
 .asset-card h2 {
@@ -576,9 +577,10 @@ input[type="range"] {
 
 .image-preview-row {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(190px, 0.52fr);
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.48fr);
   gap: 12px;
   align-items: start;
+  min-width: 0;
 }
 
 .mini-settings {
@@ -606,11 +608,21 @@ input[type="range"] {
   grid-column: 1 / -1;
 }
 
+.image-asset-card .control-threshold,
+.image-asset-card .control-edge-fade {
+  grid-column: auto;
+}
+
 .canvas-pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-self: start;
+  min-width: 0;
+}
+
+.canvas-pair > div {
+  min-width: 0;
 }
 
 .canvas-pair span {
@@ -666,6 +678,8 @@ input[type="range"] {
   max-height: 146px;
   overflow: auto;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
@@ -677,6 +691,13 @@ input[type="range"] {
 .image-side-panel {
   display: grid;
   gap: 10px;
+  min-width: 0;
+}
+
+.image-side-panel select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .build-actions {
@@ -751,6 +772,11 @@ progress {
   .mini-settings {
     grid-template-columns: 1fr;
     min-height: 0;
+  }
+
+  .image-asset-card .control-threshold,
+  .image-asset-card .control-edge-fade {
+    grid-column: 1 / -1;
   }
 
 }
