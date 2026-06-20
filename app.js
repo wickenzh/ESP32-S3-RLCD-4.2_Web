@@ -243,10 +243,11 @@ function convertCanvasToOneBit(sourceCanvas, previewCanvas, threshold, dither, i
     for (let x = 0; x < source.width; x += 1) {
       const index = y * source.width + x;
       const oldValue = gray[index];
-      const monoValue = oldValue >= threshold ? 255 : 0;
+      const biasedValue = dither ? Math.max(0, Math.min(255, oldValue - (threshold - 128))) : oldValue;
+      const monoValue = biasedValue >= (dither ? 128 : threshold) ? 255 : 0;
       let nextValue = monoValue;
       if (invert) nextValue = 255 - nextValue;
-      const error = oldValue - monoValue;
+      const error = biasedValue - monoValue;
 
       if (dither) {
         if (x + 1 < source.width) gray[index + 1] += error * 7 / 16;
