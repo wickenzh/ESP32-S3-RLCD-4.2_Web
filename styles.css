@@ -135,7 +135,7 @@ h1 {
   background: var(--surface);
 }
 
-.work-summary div,
+.work-summary .summary-specs > div,
 .metrics div {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -162,10 +162,28 @@ label span,
 
 .work-summary {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(210px, 1fr) minmax(250px, auto);
+  grid-template-columns: clamp(360px, 38%, 460px) minmax(240px, 1fr) minmax(250px, auto);
   gap: 10px;
   margin-bottom: 14px;
   align-items: stretch;
+}
+
+.summary-specs {
+  display: grid;
+  grid-template-columns: minmax(150px, .9fr) minmax(190px, 1.1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.summary-note {
+  min-width: 0;
+  margin: 0;
+  align-self: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .summary-actions {
@@ -557,11 +575,10 @@ input[type="range"] {
 
 @media (max-width: 860px) {
   .work-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
   .summary-actions {
-    grid-column: 1 / -1;
     justify-content: flex-start;
   }
 
