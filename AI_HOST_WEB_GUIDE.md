@@ -58,7 +58,7 @@ The app has four tabs:
 
 - `资源制作`: Primary tab and default view. Handles GIF and still-image conversion.
 - `资源写入`: Selects a Web Serial device, reads the ESP-IDF partition table from `0x8000`, verifies the `assets` partition, then writes generated `custom_assets.bin` to `0xC20000` over Web Serial / esptool-js.
-- `固件烧录`: Auxiliary full merged-bin flashing from `0x0`; defaults to the latest GitHub Release `merged.bin` from `wickenzh/ESP32-S3-RLCD-4.2_UP` and verifies SHA-256 before flashing.
+- `固件烧录`: Auxiliary full merged-bin flashing from `0x0`; defaults to the Github Release list from `wickenzh/ESP32-S3-RLCD-4.2_UP`, selects a `*_merged.bin` / `merged.bin` asset, and verifies SHA-256 before flashing.
 - `串口日志`: Auxiliary serial log and manual command console.
 
 Do not reintroduce Wi-Fi provisioning, default AP/IP panels, device info sidebars, OTA manifest reading, or notes pages unless the user asks.
@@ -100,4 +100,4 @@ Do not add local HTTP/HTTPS preview servers back into `host_web/` unless the use
 - The serial writing path relies on loading `esptool-js` from a CDN. Dedicated offline support would require vendoring the dependency in `host_web/`. `esptool-js` expects file data as a binary string, so `Uint8Array` payloads are converted before calling `writeFlash`.
 - After `writeFlash`, the app explicitly pulses serial RTS/DTR signals to reset the ESP32-S3. Keep this behavior unless hardware reset wiring changes.
 - The resource writer must keep the partition-table preflight: read flash `0x8000..0x8FFF`, parse 32-byte ESP-IDF partition entries, and only enable resource write/erase after finding `assets` at `0xC20000` with at least `2M`.
-- Firmware flashing defaults to GitHub's latest Release API for `wickenzh/ESP32-S3-RLCD-4.2_UP`, selecting `merged.bin`. The app uses the Release asset `digest` when available, or a release checksum asset such as `merged.bin.sha256` / `SHA256SUMS`, then downloads the bin and verifies SHA-256 with Web Crypto before enabling flashing.
+- Firmware flashing defaults to Github's Releases API for `wickenzh/ESP32-S3-RLCD-4.2_UP`, selecting `*_merged.bin` / `merged.bin`. The app uses the Release asset `digest` when available, or a release checksum asset such as `merged.bin.sha256` / `SHA256SUMS`, then downloads the bin and verifies SHA-256 with Web Crypto before enabling flashing. Keep the embedded fallback list current when Releases API access is rate-limited or unavailable.
