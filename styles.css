@@ -33,8 +33,7 @@ textarea {
   font: inherit;
 }
 
-.topbar,
-.footer {
+.topbar {
   width: min(1180px, calc(100vw - 32px));
   margin: 0 auto;
 }
@@ -556,7 +555,9 @@ input[type="range"] {
 
 .footer {
   display: grid;
-  place-items: stretch;
+  width: min(1180px, calc(100vw - 32px));
+  margin: 0 auto;
+  place-items: center;
   padding: 0 0 18px;
 }
 
@@ -577,15 +578,13 @@ input[type="range"] {
     width: min(100vw - 20px, 1180px);
   }
 
-  .topbar,
-  .footer {
+  .topbar {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .footer {
-    align-items: center;
-    justify-items: center;
+    place-items: center;
   }
 
   .footer-panel {
