@@ -116,15 +116,27 @@ h1 {
   margin: 0 auto 18px;
 }
 
-.browser-notice {
+.footer-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #eef5f7;
   color: var(--ink);
   padding: 10px 12px;
-  margin-bottom: 12px;
   font-size: 14px;
   font-weight: 800;
+  text-align: left;
+}
+
+.footer-panel > span:last-child {
+  flex: 0 0 auto;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
 }
 
 .workspace {
@@ -544,8 +556,7 @@ input[type="range"] {
 
 .footer {
   display: grid;
-  place-items: center;
-  text-align: center;
+  place-items: stretch;
   padding: 0 0 18px;
 }
 
@@ -575,6 +586,15 @@ input[type="range"] {
   .footer {
     align-items: center;
     justify-items: center;
+  }
+
+  .footer-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .footer-panel > span:last-child {
+    align-self: flex-end;
   }
 
   .work-summary,

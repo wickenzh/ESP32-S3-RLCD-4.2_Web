@@ -25,7 +25,6 @@
   </header>
 
   <main class="layout">
-    <div class="browser-notice">使用此服务需要 Edge 或 Chrome 浏览器。</div>
     <section class="workspace">
       <nav class="tabs" aria-label="上位机功能">
         <button class="tab is-active" data-tab="assets" type="button">资源制作</button>
@@ -258,7 +257,10 @@
   </main>
 
   <footer class="footer">
-    <span><b>v0.0.7</b> · <span id="cacheState">离线缓存准备中</span></span>
+    <div class="footer-panel">
+      <span>使用此服务需要 Edge 或 Chrome 浏览器。</span>
+      <span><b>v0.0.8</b> · <span id="cacheState">离线缓存准备中</span></span>
+    </div>
   </footer>
 
   <script src="./app.js" type="module"></script>
