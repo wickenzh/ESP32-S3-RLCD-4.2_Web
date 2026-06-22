@@ -16,6 +16,7 @@ const PARTITION_TABLE_OFFSET = 0x8000;
 const PARTITION_TABLE_SIZE = 0x1000;
 const FIRMWARE_RELEASE_API_URL = "https://api.github.com/repos/wickenzh/ESP32-S3-RLCD-4.2_UP/releases?per_page=20";
 const FIRMWARE_RELEASE_ASSET_NAME = "merged.bin";
+const DEFAULT_SUMMARY_NOTE = "资源包可同时包含 GIF 动图和静图；写入设备后重启，固件会优先加载自定义资源。";
 const FALLBACK_FIRMWARE_RELEASES = [
   {
     version: "v1.4.1",
@@ -822,6 +823,16 @@ function getSelectedImageFiles() {
   return Array.from($("#imageInput").files || []).slice(0, MAX_IMAGES);
 }
 
+function updateSummaryNoteForImages(files = getSelectedImageFiles()) {
+  const note = $("#summaryNote");
+  if (!note) return;
+  if (files.length === 0) {
+    note.textContent = DEFAULT_SUMMARY_NOTE;
+    return;
+  }
+  note.textContent = `已选择 ${files.length} 张静图，最多会转换前 ${MAX_IMAGES} 张。当前预览第 ${selectedImagePreviewIndex + 1} 张，点击“转换静图”查看 1-bit 预览。`;
+}
+
 function updateImagePreviewSelect(files) {
   const select = $("#imagePreviewSelect");
   select.innerHTML = "";
@@ -847,6 +858,7 @@ function updateImagePreviewSelect(files) {
 function updateImageList(files) {
   if (files.length === 0) {
     $("#imageList").textContent = "尚未选择静图。";
+    updateSummaryNoteForImages(files);
     return;
   }
   const converted = new Set(convertedImages.map((item) => item.index));
@@ -877,7 +889,9 @@ function clearImageConversions() {
   invalidateGeneratedAssets();
   const preview = $("#imagePreviewCanvas");
   preview.getContext("2d", { willReadFrequently: true }).clearRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
-  updateImageList(getSelectedImageFiles());
+  const files = getSelectedImageFiles();
+  updateImageList(files);
+  updateSummaryNoteForImages(files);
   $("#assetResult").textContent = "已清除静图转换结果。已选择的静图文件仍保留，可重新转换。";
 }
 
@@ -907,6 +921,7 @@ async function updateSelectedImageRealtimePreview({ clearConverted = true, messa
     $("#imageInvert").checked
   );
   updateImageList(files);
+  updateSummaryNoteForImages(files);
   if (message) {
     $("#assetResult").textContent = `已按当前参数实时预览第 ${selectedImagePreviewIndex + 1} 张。若要写入设备，请重新点击“转换静图”生成全部静图资源。`;
   }
@@ -921,6 +936,7 @@ async function previewSelectedImages({ keepConverted = false } = {}) {
   if (files.length === 0) {
     updateImagePreviewSelect(files);
     $("#imageList").textContent = "尚未选择静图。";
+    updateSummaryNoteForImages(files);
     return;
   }
   updateImagePreviewSelect(files);
@@ -944,8 +960,9 @@ async function previewSelectedImages({ keepConverted = false } = {}) {
     );
   }
   updateImageList(files);
+  updateSummaryNoteForImages(files);
   if (!keepConverted) {
-    $("#assetResult").textContent = `已选择 ${files.length} 张静图，最多会转换前 ${MAX_IMAGES} 张。当前预览第 ${selectedImagePreviewIndex + 1} 张，点击“转换静图”查看 1-bit 预览。`;
+    $("#assetResult").textContent = "已载入静图，点击“转换静图”查看 1-bit 预览。";
   }
 }
 
