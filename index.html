@@ -16,6 +16,10 @@
         <p>GIF 动图与静图资源制作、预览和写入</p>
       </div>
     </div>
+    <div class="top-meta">
+      <span>使用此服务需要 Edge 浏览器或 Chrome 浏览器。</span>
+      <span><b>v0.0.10</b> · <span id="cacheState">离线缓存准备中</span></span>
+    </div>
     <div class="top-actions">
       <span id="serialSupport" class="status-pill">检测中</span>
       <button id="installAppBtn" class="icon-button" type="button" title="安装为本地应用" aria-label="安装为本地应用">
@@ -37,8 +41,10 @@
         <div class="work-summary">
           <div><span>GIF 动图</span><strong>84 x 84 / 60 帧</strong></div>
           <div><span>静图</span><strong>220 x 208 / 最多 24 张</strong></div>
-          <div><span>资源包</span><strong>custom_assets.bin</strong></div>
-          <div><span>设备写入地址</span><strong>0xC20000</strong></div>
+          <div class="summary-actions">
+            <button id="buildAssetsBtn" class="primary-button" type="button">生成资源包</button>
+            <button id="downloadAssetsBtn" class="secondary-button" type="button" disabled>下载 BIN</button>
+          </div>
         </div>
         <div class="asset-grid">
           <div class="asset-card gif-asset-card">
@@ -125,10 +131,6 @@
               <button id="clearImagesBtn" class="secondary-button" type="button">清除静图</button>
             </div>
           </div>
-        </div>
-        <div class="action-strip build-actions">
-          <button id="buildAssetsBtn" class="primary-button" type="button">生成资源包</button>
-          <button id="downloadAssetsBtn" class="secondary-button" type="button" disabled>下载 custom_assets.bin</button>
         </div>
         <output id="assetResult" class="output-box">资源包可同时包含 GIF 动图和静图；写入设备后重启，固件会优先加载自定义资源。</output>
       </section>
@@ -255,13 +257,6 @@
       </section>
     </section>
   </main>
-
-  <footer class="footer">
-    <div class="footer-panel">
-      <span>使用此服务需要 Edge 或 Chrome 浏览器。</span>
-      <span><b>v0.0.9</b> · <span id="cacheState">离线缓存准备中</span></span>
-    </div>
-  </footer>
 
   <script src="./app.js" type="module"></script>
 </body>
