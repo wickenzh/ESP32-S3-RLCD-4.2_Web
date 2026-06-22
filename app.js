@@ -12,12 +12,16 @@ const GIF_FRAMES = 60;
 const IMAGE_WIDTH = 220;
 const IMAGE_HEIGHT = 208;
 const MAX_IMAGES = 24;
-const FIRMWARE_MANIFEST_URL = "https://raw.githubusercontent.com/wickenzh/ESP32-S3-RLCD-4.2_UP/main/firmware/latest.json";
+const PARTITION_TABLE_OFFSET = 0x8000;
+const PARTITION_TABLE_SIZE = 0x1000;
+const FIRMWARE_RELEASE_API_URL = "https://api.github.com/repos/wickenzh/ESP32-S3-RLCD-4.2_UP/releases/latest";
+const FIRMWARE_RELEASE_ASSET_NAME = "merged.bin";
 
 const serialSupport = $("#serialSupport");
 const connectSerialBtn = $("#connectSerialBtn");
 const baudRate = $("#baudRate");
 const serialState = $("#serialState");
+const serialDevice = $("#serialDevice");
 const serialLog = $("#serialLog");
 const clearLogBtn = $("#clearLogBtn");
 const saveLogBtn = $("#saveLogBtn");
@@ -49,6 +53,30 @@ let gifFrameCacheFile;
 let gifFrameCacheFrames;
 let gifRealtimeTimer;
 let imageRealtimeTimer;
+let assetDevicePort;
+let assetPartitionVerified = false;
+
+function hex(value, width = 0) {
+  return `0x${Number(value).toString(16).toUpperCase().padStart(width, "0")}`;
+}
+
+function serialId(value) {
+  return value === undefined ? "----" : hex(value, 4);
+}
+
+function describePort(selectedPort) {
+  const info = selectedPort?.getInfo?.() || {};
+  if (info.usbVendorId !== undefined || info.usbProductId !== undefined) {
+    return `USB ${serialId(info.usbVendorId)}:${serialId(info.usbProductId)}`;
+  }
+  return "已授权串口设备";
+}
+
+function resetAssetDeviceState(message = "未核对") {
+  assetPartitionVerified = false;
+  $("#assetPartitionState").textContent = message;
+  updateAssetWriteButtons();
+}
 
 function setGifOriginalPreview(file) {
   if (gifOriginalUrl) URL.revokeObjectURL(gifOriginalUrl);
@@ -91,15 +119,23 @@ function setProgress(prefix, written, total) {
   $(`#${prefix}Percent`).textContent = `${percent}%`;
 }
 
+function updateAssetWriteButtons() {
+  const hasSerial = "serial" in navigator;
+  $("#writeAssetsBtn").disabled = !(hasSerial && assetPartitionVerified && generatedAssetPackage);
+  $("#eraseAssetsBtn").disabled = !(hasSerial && assetPartitionVerified);
+}
+
 function setSerialSupport() {
   if ("serial" in navigator) {
     serialSupport.textContent = "Web Serial 可用";
     serialSupport.classList.add("is-ok");
+    updateAssetWriteButtons();
     return;
   }
   serialSupport.textContent = "浏览器不支持串口";
   serialSupport.classList.add("is-warn");
   connectSerialBtn.disabled = true;
+  $("#selectAssetDeviceBtn").disabled = true;
   $("#writeAssetsBtn").disabled = true;
   $("#eraseAssetsBtn").disabled = true;
   $("#writeFirmwareBtn").disabled = true;
@@ -130,6 +166,7 @@ async function disconnectSerial() {
   port = undefined;
   connectSerialBtn.textContent = "连接串口";
   serialState.textContent = "未连接";
+  serialDevice.textContent = "未选择";
   appendLog(`\n[${nowText()}] 串口已断开\n`);
 }
 
@@ -145,7 +182,8 @@ async function connectSerial() {
     keepReading = true;
     connectSerialBtn.textContent = "断开串口";
     serialState.textContent = "已连接";
-    appendLog(`[${nowText()}] 串口已连接，波特率 ${baudRate.value}\n`);
+    serialDevice.textContent = describePort(port);
+    appendLog(`[${nowText()}] 串口已连接：${describePort(port)}，波特率 ${baudRate.value}\n`);
     readSerialLoop();
   } catch (error) {
     serialState.textContent = "连接失败";
@@ -961,7 +999,7 @@ function buildAssetPackage() {
 
   generatedAssetPackage = new Uint8Array(buffer);
   $("#downloadAssetsBtn").disabled = false;
-  $("#writeAssetsBtn").disabled = !("serial" in navigator);
+  updateAssetWriteButtons();
   $("#assetWriteState").textContent = `资源包已生成：${formatBytes(totalSize)}`;
   $("#assetResult").textContent = `资源包已生成：${entries.length} 个资源，${formatBytes(totalSize)}。`;
 }
@@ -1002,21 +1040,216 @@ function formatSha(value) {
   return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }
 
+function extractSha256(text, assetName = FIRMWARE_RELEASE_ASSET_NAME) {
+  const normalizedName = assetName.toLowerCase();
+  const lines = String(text || "").split(/\r?\n/);
+  for (const line of lines) {
+    const sha = line.match(/\b[a-fA-F0-9]{64}\b/)?.[0];
+    if (!sha) continue;
+    const lowerLine = line.toLowerCase();
+    if (lines.length === 1 || lowerLine.includes(normalizedName) || lowerLine.includes("merged.bin")) return sha.toLowerCase();
+  }
+  return "";
+}
+
+async function resolveReleaseAssetSha256(release, firmwareAsset) {
+  const digest = firmwareAsset.digest || firmwareAsset.sha256;
+  if (typeof digest === "string") {
+    const sha = digest.match(/[a-fA-F0-9]{64}/)?.[0];
+    if (sha) return sha.toLowerCase();
+  }
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const checksumAsset = assets.find((asset) => {
+    const name = asset.name?.toLowerCase() || "";
+    return name === `${firmwareAsset.name.toLowerCase()}.sha256`
+      || name === "merged.bin.sha256"
+      || name === "sha256sums"
+      || name === "sha256sums.txt"
+      || name === "sha256.txt"
+      || name.endsWith(".sha256");
+  });
+  if (!checksumAsset?.browser_download_url) return "";
+  const response = await fetch(`${checksumAsset.browser_download_url}?t=${Date.now()}`, { cache: "no-store" });
+  if (!response.ok) return "";
+  return extractSha256(await response.text(), firmwareAsset.name);
+}
+
+function partitionTypeName(type) {
+  if (type === 0x00) return "app";
+  if (type === 0x01) return "data";
+  return hex(type, 2);
+}
+
+function partitionSubtypeName(type, subtype) {
+  if (type === 0x00) {
+    if (subtype === 0x00) return "factory";
+    if (subtype >= 0x10 && subtype <= 0x1F) return `ota_${subtype - 0x10}`;
+    if (subtype === 0x20) return "test";
+  }
+  if (type === 0x01) {
+    const names = {
+      0x00: "ota",
+      0x01: "phy",
+      0x02: "nvs",
+      0x03: "coredump",
+      0x04: "nvs_keys",
+      0x05: "efuse",
+      0x06: "undefined",
+      0x80: "spiffs",
+      0x81: "fat",
+      0x82: "littlefs"
+    };
+    if (names[subtype]) return names[subtype];
+  }
+  return hex(subtype, 2);
+}
+
+function parsePartitionTable(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const partitions = [];
+  for (let offset = 0; offset + 32 <= bytes.byteLength; offset += 32) {
+    const magic = view.getUint16(offset, true);
+    if (magic === 0xFFFF) break;
+    if (magic !== 0x50AA) continue;
+    const type = view.getUint8(offset + 2);
+    const subtype = view.getUint8(offset + 3);
+    const address = view.getUint32(offset + 4, true);
+    const size = view.getUint32(offset + 8, true);
+    const labelBytes = bytes.slice(offset + 12, offset + 28);
+    const nulIndex = labelBytes.indexOf(0);
+    const label = new TextDecoder().decode(nulIndex >= 0 ? labelBytes.slice(0, nulIndex) : labelBytes).trim();
+    const flags = view.getUint32(offset + 28, true);
+    if (!label) continue;
+    partitions.push({ label, type, subtype, address, size, flags });
+  }
+  return partitions;
+}
+
+function renderPartitionTable(partitions) {
+  const tbody = $("#partitionTableBody");
+  tbody.textContent = "";
+  if (partitions.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.textContent = "未读取到有效分区表。";
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    return false;
+  }
+  const assets = partitions.find((partition) => partition.label === "assets");
+  const assetsOk = Boolean(assets && assets.address === ASSETS_OFFSET && assets.size >= ASSETS_SIZE);
+  partitions.forEach((partition) => {
+    const row = document.createElement("tr");
+    const isAssets = partition.label === "assets";
+    const state = isAssets
+      ? (assetsOk ? "可写入" : `应为 ${hex(ASSETS_OFFSET)} / ${formatBytes(ASSETS_SIZE)}`)
+      : "-";
+    row.className = isAssets ? (assetsOk ? "is-ok" : "is-warn") : "";
+    [
+      partition.label,
+      `${partitionTypeName(partition.type)} / ${partitionSubtypeName(partition.type, partition.subtype)}`,
+      hex(partition.address),
+      formatBytes(partition.size),
+      state
+    ].forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    tbody.appendChild(row);
+  });
+  return assetsOk;
+}
+
+async function inspectAssetDevice() {
+  if (!("serial" in navigator)) {
+    appendWriteLog("当前浏览器不支持 Web Serial。请使用 Chrome 或 Edge。\n");
+    return;
+  }
+  resetAssetDeviceState("核对中");
+  $("#selectAssetDeviceBtn").disabled = true;
+  setProgress("assetWrite", 0, 100);
+  appendWriteLog(`[${nowText()}] 请选择要写入资源的设备。\n`);
+  let transport;
+  let selectedPort;
+  try {
+    const esptool = await importEsptool();
+    selectedPort = await navigator.serial.requestPort();
+    assetDevicePort = selectedPort;
+    $("#assetDeviceName").textContent = describePort(selectedPort);
+    appendWriteLog(`[${nowText()}] 已选择设备：${describePort(selectedPort)}\n`);
+    const Transport = esptool.Transport;
+    const ESPLoader = esptool.ESPLoader;
+    transport = new Transport(selectedPort, true);
+    const terminal = { clean: () => {}, writeLine: (line) => appendWriteLog(`${line}\n`), write: (text) => appendWriteLog(text) };
+    const loader = new ESPLoader({ transport, baudrate: Number($("#assetBaudRate").value), terminal });
+    $("#assetWriteState").textContent = "连接并读取分区表";
+    const chipName = await loader.main();
+    const macAddress = await loader.chip.readMac(loader);
+    $("#assetChipName").textContent = chipName || "已连接";
+    $("#assetMacAddress").textContent = macAddress || "-";
+    appendWriteLog(`[${nowText()}] 正在读取分区表 0x${PARTITION_TABLE_OFFSET.toString(16)}\n`);
+    const tableBytes = await loader.readFlash(PARTITION_TABLE_OFFSET, PARTITION_TABLE_SIZE, (_chunk, read, total) => {
+      setProgress("assetWrite", read, total);
+    });
+    const partitions = parsePartitionTable(tableBytes);
+    assetPartitionVerified = renderPartitionTable(partitions);
+    $("#assetPartitionState").textContent = assetPartitionVerified ? "通过" : "未通过";
+    $("#assetWriteState").textContent = assetPartitionVerified ? "分区核对通过" : "分区核对未通过";
+    appendWriteLog(assetPartitionVerified
+      ? `[${nowText()}] 分区核对通过：assets ${hex(ASSETS_OFFSET)} / ${formatBytes(ASSETS_SIZE)}\n`
+      : `[${nowText()}] 分区核对未通过：未找到正确的 assets 分区。\n`);
+    await resetDeviceAfterFlash(transport, selectedPort, appendWriteLog);
+  } catch (error) {
+    assetPartitionVerified = false;
+    $("#assetPartitionState").textContent = "失败";
+    $("#assetWriteState").textContent = "设备核对失败";
+    appendWriteLog(`[${nowText()}] 设备核对失败：${error.message}\n`);
+  } finally {
+    updateAssetWriteButtons();
+    $("#selectAssetDeviceBtn").disabled = !("serial" in navigator);
+    if (transport) {
+      try {
+        await transport.disconnect();
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+  }
+}
+
 async function loadRemoteFirmwareManifest() {
   $("#remoteFirmwareSelect").innerHTML = `<option value="">正在加载固件清单</option>`;
   $("#firmwareWriteState").textContent = "正在加载在线固件清单";
   setFirmwareReady(false);
   verifiedFirmwareData = undefined;
   selectedFirmware = undefined;
-  const response = await fetch(`${FIRMWARE_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`固件清单读取失败：HTTP ${response.status}`);
-  const manifest = await response.json();
-  if (!manifest.url || !manifest.sha256 || !manifest.size) throw new Error("固件清单缺少 url / sha256 / size 字段");
+  const response = await fetch(`${FIRMWARE_RELEASE_API_URL}?t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/vnd.github+json" }
+  });
+  if (!response.ok) throw new Error(`GitHub Release 读取失败：HTTP ${response.status}`);
+  const release = await response.json();
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const firmwareAsset = assets.find((asset) => asset.name === FIRMWARE_RELEASE_ASSET_NAME)
+    || assets.find((asset) => asset.name?.toLowerCase().endsWith(FIRMWARE_RELEASE_ASSET_NAME));
+  if (!firmwareAsset?.browser_download_url) throw new Error(`最新 Release 中未找到 ${FIRMWARE_RELEASE_ASSET_NAME}`);
+  const checksum = await resolveReleaseAssetSha256(release, firmwareAsset);
+  if (!checksum) throw new Error(`Release 中未找到 ${firmwareAsset.name} 的 SHA-256，无法安全启用在线烧录。`);
+  const manifest = {
+    version: release.tag_name || release.name || "latest",
+    url: firmwareAsset.browser_download_url,
+    sha256: checksum,
+    size: firmwareAsset.size,
+    assetName: firmwareAsset.name,
+    releaseUrl: release.html_url
+  };
   remoteFirmwareManifest = manifest;
   $("#remoteFirmwareSelect").innerHTML = "";
   const option = document.createElement("option");
   option.value = manifest.url;
-  option.textContent = `${manifest.version || "latest"} / ${formatBytes(manifest.size)}`;
+  option.textContent = `${manifest.version || "latest"} / ${manifest.assetName} / ${formatBytes(manifest.size)}`;
   $("#remoteFirmwareSelect").appendChild(option);
   $("#firmwareWriteState").textContent = `在线固件：${manifest.version || "latest"} / ${formatBytes(manifest.size)}`;
   $("#flashResult").textContent = `在线固件已选择：${manifest.version || "latest"}，SHA-256 ${formatSha(manifest.sha256)}。请先下载并校验，通过后可烧录。`;
@@ -1138,44 +1371,56 @@ async function resetDeviceAfterFlash(transport, device, log) {
   }
 }
 
-async function writeBinaryWithEsptool({ data, offset, baudRateValue, stateId, percentId, progressId, log, eraseSize }) {
+async function writeBinaryWithEsptool({ data, offset, baudRateValue, stateId, percentId, progressId, log, eraseSize, devicePort }) {
   if (!("serial" in navigator)) throw new Error("当前浏览器不支持 Web Serial。请使用 Chrome 或 Edge。");
   const esptool = await importEsptool();
-  const device = await navigator.serial.requestPort();
+  const device = devicePort || await navigator.serial.requestPort();
   const Transport = esptool.Transport;
   const ESPLoader = esptool.ESPLoader;
   const transport = new Transport(device, true);
   const terminal = { clean: () => {}, writeLine: (line) => log(`${line}\n`), write: (text) => log(text) };
   const loader = new ESPLoader({ transport, baudrate: Number(baudRateValue), terminal });
-  $(`#${stateId}`).textContent = "连接设备中";
-  await loader.main();
-  $(`#${stateId}`).textContent = "写入中";
-  const binary = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const binaryString = uint8ArrayToBinaryString(binary);
-  await loader.writeFlash({
-    fileArray: [{ data: binaryString, address: offset }],
-    flashSize: "keep",
-    eraseAll: false,
-    compress: true,
-    reportProgress: (_fileIndex, written, total) => {
-      const percent = total ? Math.min(100, Math.round(written / total * 100)) : 0;
-      $(`#${progressId}`).value = percent;
-      $(`#${percentId}`).textContent = `${percent}%`;
-      $(`#${stateId}`).textContent = `写入中 ${formatBytes(written)} / ${formatBytes(total)}`;
+  try {
+    $(`#${stateId}`).textContent = "连接设备中";
+    log(`目标设备：${describePort(device)}\n`);
+    await loader.main();
+    $(`#${stateId}`).textContent = "写入中";
+    const binary = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const binaryString = uint8ArrayToBinaryString(binary);
+    await loader.writeFlash({
+      fileArray: [{ data: binaryString, address: offset }],
+      flashSize: "keep",
+      eraseAll: false,
+      compress: true,
+      reportProgress: (_fileIndex, written, total) => {
+        const percent = total ? Math.min(100, Math.round(written / total * 100)) : 0;
+        $(`#${progressId}`).value = percent;
+        $(`#${percentId}`).textContent = `${percent}%`;
+        $(`#${stateId}`).textContent = `写入中 ${formatBytes(written)} / ${formatBytes(total)}`;
+      }
+    });
+    if (eraseSize) log(`写入范围：0x${offset.toString(16)} + ${formatBytes(eraseSize)}\n`);
+    $(`#${progressId}`).value = 100;
+    $(`#${percentId}`).textContent = "100%";
+    $(`#${stateId}`).textContent = "写入完成，正在复位";
+    await resetDeviceAfterFlash(transport, device, log);
+    $(`#${stateId}`).textContent = "写入完成，设备已复位";
+  } finally {
+    try {
+      await transport.disconnect();
+    } catch (error) {
+      console.warn(error);
     }
-  });
-  if (eraseSize) log(`写入范围：0x${offset.toString(16)} + ${formatBytes(eraseSize)}\n`);
-  $(`#${progressId}`).value = 100;
-  $(`#${percentId}`).textContent = "100%";
-  $(`#${stateId}`).textContent = "写入完成，正在复位";
-  await resetDeviceAfterFlash(transport, device, log);
-  $(`#${stateId}`).textContent = "写入完成，设备已复位";
-  await transport.disconnect();
+  }
 }
 
 async function writeAssets() {
   if (!generatedAssetPackage) {
     appendWriteLog("请先生成资源包。\n");
+    return;
+  }
+  if (!assetPartitionVerified || !assetDevicePort) {
+    appendWriteLog("请先选择设备并核对分区表。\n");
     return;
   }
   setProgress("assetWrite", 0, 100);
@@ -1189,7 +1434,8 @@ async function writeAssets() {
       percentId: "assetWritePercent",
       progressId: "assetWriteProgress",
       log: appendWriteLog,
-      eraseSize: generatedAssetPackage.byteLength
+      eraseSize: generatedAssetPackage.byteLength,
+      devicePort: assetDevicePort
     });
     appendWriteLog(`[${nowText()}] 资源写入完成。\n`);
   } catch (error) {
@@ -1199,6 +1445,10 @@ async function writeAssets() {
 }
 
 async function eraseAssets() {
+  if (!assetPartitionVerified || !assetDevicePort) {
+    appendWriteLog("请先选择设备并核对分区表。\n");
+    return;
+  }
   const erasedHeader = new Uint8Array(4096).fill(0xFF);
   setProgress("assetWrite", 0, 100);
   appendWriteLog(`[${nowText()}] 开始清空资源分区头部 0x${ASSETS_OFFSET.toString(16)}\n`);
@@ -1211,7 +1461,8 @@ async function eraseAssets() {
       percentId: "assetWritePercent",
       progressId: "assetWriteProgress",
       log: appendWriteLog,
-      eraseSize: erasedHeader.byteLength
+      eraseSize: erasedHeader.byteLength,
+      devicePort: assetDevicePort
     });
     appendWriteLog(`[${nowText()}] 资源分区已清空，设备会回退到内置素材。\n`);
   } catch (error) {
@@ -1394,6 +1645,7 @@ $("#previewImagesBtn").addEventListener("click", () => convertImages().catch((er
 $("#clearImagesBtn").addEventListener("click", clearImageConversions);
 $("#buildAssetsBtn").addEventListener("click", buildAssetPackage);
 $("#downloadAssetsBtn").addEventListener("click", downloadAssets);
+$("#selectAssetDeviceBtn").addEventListener("click", inspectAssetDevice);
 $("#writeAssetsBtn").addEventListener("click", writeAssets);
 $("#eraseAssetsBtn").addEventListener("click", eraseAssets);
 $("#firmwareSource").addEventListener("change", () => {

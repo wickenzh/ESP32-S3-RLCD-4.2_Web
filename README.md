@@ -29,8 +29,8 @@ https://wickenzh.github.io/ESP32-S3-RLCD-4.2_Web/
 - Web Serial 串口日志读取、命令发送、日志保存。
 - 图片资源制作：静图支持 JPG、PNG、WebP、BMP 等浏览器可读图片，转换为 `220×208`、1-bit packed。
 - GIF 资源制作：动图只支持 GIF，转换为 `84×84`、60 帧、整帧连续 1-bit bitstream。
-- 资源写入：生成 `custom_assets.bin` 后，通过串口写入设备 `assets` 分区 `0xC20000`，显示写入进度。
-- 固件烧录：默认从 `wickenzh/ESP32-S3-RLCD-4.2_UP` 的 `firmware/latest.json` 选择在线 merged bin，下载后校验 SHA-256，通过后才允许串口烧录；也支持用户自行选择完整 merged bin。
+- 资源写入：先选择设备并读取分区表，确认 `assets` 分区为 `0xC20000` / `2M` 后，才能串口写入或清空资源分区。
+- 固件烧录：默认从 `wickenzh/ESP32-S3-RLCD-4.2_UP` 最新 GitHub Release 选择 `merged.bin`，下载后校验 SHA-256，通过后才允许串口烧录；也支持用户自行选择完整 merged bin。
 - 离线缓存，便于打开页面后再切换到设备 AP。
 
 ## 在线固件仓库
@@ -44,10 +44,10 @@ https://github.com/wickenzh/ESP32-S3-RLCD-4.2_UP
 网页读取：
 
 ```text
-https://raw.githubusercontent.com/wickenzh/ESP32-S3-RLCD-4.2_UP/main/firmware/latest.json
+https://api.github.com/repos/wickenzh/ESP32-S3-RLCD-4.2_UP/releases/latest
 ```
 
-`latest.json` 需要提供 `version`、`url`、`sha256`、`size` 字段。网页下载固件后会计算 SHA-256，只有与清单一致才会启用烧录。
+最新 Release 中需要提供 `merged.bin`，并需要可核对的 SHA-256：优先使用 GitHub Release asset 的 `digest` 字段，也支持同一 Release 内的 `merged.bin.sha256`、`SHA256SUMS`、`SHA256SUMS.txt` 或 `sha256.txt`。网页下载固件后会计算 SHA-256，只有与记录一致才会启用烧录。
 
 `firmware/manifest.example.json` 是 ESP Web Tools 示例。ESP-IDF v4+ 固件推荐使用 `esptool merge_bin` 生成的单个 merged bin，并写入 `0x0`。
 

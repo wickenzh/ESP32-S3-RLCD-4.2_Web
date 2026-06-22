@@ -25,6 +25,7 @@
   </header>
 
   <main class="layout">
+    <div class="browser-notice">使用此服务需要 Edge 或 Chrome 浏览器。</div>
     <section class="workspace">
       <nav class="tabs" aria-label="上位机功能">
         <button class="tab is-active" data-tab="assets" type="button">资源制作</button>
@@ -150,6 +151,7 @@
         </div>
         <div class="metrics">
           <div><span>连接</span><strong id="serialState">未连接</strong></div>
+          <div><span>设备</span><strong id="serialDevice">未选择</strong></div>
           <div><span>接收</span><strong id="rxBytes">0 B</strong></div>
           <div><span>最近日志</span><strong id="lastLineTime">-</strong></div>
         </div>
@@ -171,8 +173,33 @@
               <option value="921600">921600</option>
             </select>
           </label>
+          <button id="selectAssetDeviceBtn" class="primary-button" type="button">选择并核对设备</button>
           <button id="writeAssetsBtn" class="primary-button" type="button" disabled>串口写入资源</button>
-          <button id="eraseAssetsBtn" class="secondary-button" type="button">清空资源分区</button>
+          <button id="eraseAssetsBtn" class="secondary-button" type="button" disabled>清空资源分区</button>
+        </div>
+        <div class="device-panel">
+          <div class="metrics writer-metrics">
+            <div><span>已选设备</span><strong id="assetDeviceName">未选择</strong></div>
+            <div><span>芯片</span><strong id="assetChipName">等待核对</strong></div>
+            <div><span>MAC</span><strong id="assetMacAddress">-</strong></div>
+            <div><span>分区核对</span><strong id="assetPartitionState">未核对</strong></div>
+          </div>
+          <div class="partition-table-wrap">
+            <table class="partition-table" aria-label="设备分区表">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th>偏移</th>
+                  <th>大小</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="partitionTableBody">
+                <tr><td colspan="5">选择设备后读取分区表。</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         <div class="progress-block">
           <div class="progress-head"><span id="assetWriteState">等待资源包</span><strong id="assetWritePercent">0%</strong></div>
@@ -186,7 +213,7 @@
           <label>
             <span>固件来源</span>
             <select id="firmwareSource">
-              <option value="remote" selected>GitHub 固件仓库</option>
+              <option value="remote" selected>GitHub Release merged.bin</option>
               <option value="local">自定义固件文件</option>
             </select>
           </label>
@@ -225,13 +252,13 @@
           <div class="progress-head"><span id="firmwareWriteState">等待固件文件</span><strong id="firmwareWritePercent">0%</strong></div>
           <progress id="firmwareWriteProgress" value="0" max="100"></progress>
         </div>
-        <output id="flashResult" class="output-box">默认使用 GitHub 固件仓库中的最新 merged bin。在线固件下载后必须通过 SHA-256 校验才允许烧录，也可以切换为自定义固件文件。</output>
+        <output id="flashResult" class="output-box">默认使用 GitHub Release 中的 merged.bin。在线固件下载后必须通过 SHA-256 校验才允许烧录，也可以切换为自定义固件文件。</output>
       </section>
     </section>
   </main>
 
   <footer class="footer">
-    <span><b>v0.0.5</b> · <span id="cacheState">离线缓存准备中</span></span>
+    <span><b>v0.0.6</b> · <span id="cacheState">离线缓存准备中</span></span>
   </footer>
 
   <script src="./app.js" type="module"></script>

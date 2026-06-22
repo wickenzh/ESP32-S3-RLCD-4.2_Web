@@ -116,6 +116,17 @@ h1 {
   margin: 0 auto 18px;
 }
 
+.browser-notice {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #eef5f7;
+  color: var(--ink);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .workspace {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -276,7 +287,7 @@ button:disabled,
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin: 12px 0;
 }
@@ -421,6 +432,60 @@ input[type="range"] {
 .flash-table span {
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.device-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  margin: 12px 0;
+  padding: 12px;
+}
+
+.writer-metrics {
+  margin: 0 0 12px;
+}
+
+.partition-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.partition-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.partition-table th,
+.partition-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.partition-table th {
+  color: var(--muted);
+  background: #f3f6f8;
+  font-size: 12px;
+}
+
+.partition-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.partition-table .is-ok td {
+  color: var(--ok);
+  font-weight: 800;
+}
+
+.partition-table .is-warn td {
+  color: var(--warn);
+  font-weight: 800;
 }
 
 .wide-field {
