@@ -1586,18 +1586,15 @@ async function writeBinaryWithEsptool({ data, offset, baudRateValue, stateId, pe
     const binary = data instanceof Uint8Array ? data : new Uint8Array(data);
     const binaryString = uint8ArrayToBinaryString(binary);
     const offsets = Array.isArray(offset) ? offset : [offset];
-    const totalBytes = binary.byteLength * offsets.length;
-    const writtenByFile = new Array(offsets.length).fill(0);
+    const progressByFile = new Array(offsets.length).fill(0);
     await loader.writeFlash({
       fileArray: offsets.map((address) => ({ data: binaryString, address })),
       flashSize: "keep",
       eraseAll: false,
       compress: true,
       reportProgress: (fileIndex, written, total) => {
-        writtenByFile[fileIndex] = written;
-        const writtenTotal = writtenByFile.reduce((sum, value) => sum + value, 0);
-        const progressTotal = totalBytes || total;
-        const percent = progressTotal ? Math.min(100, Math.round(writtenTotal / progressTotal * 100)) : 0;
+        progressByFile[fileIndex] = total ? Math.min(1, written / total) : 0;
+        const percent = Math.min(100, Math.round(progressByFile.reduce((sum, value) => sum + value, 0) / offsets.length * 100));
         $(`#${progressId}`).value = percent;
         $(`#${percentId}`).textContent = `${percent}%`;
         const targetText = offsets.length > 1 ? ` ${fileIndex + 1}/${offsets.length} ${hex(offsets[fileIndex])}` : "";

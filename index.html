@@ -18,7 +18,7 @@
     </div>
     <div class="top-meta">
       <span>使用此服务需要 Edge 浏览器或 Chrome 浏览器。</span>
-      <span><b>v0.0.18</b> · <span id="cacheState">离线缓存准备中</span></span>
+      <span><b>v0.0.19</b> · <span id="cacheState">离线缓存准备中</span></span>
     </div>
     <div class="top-actions">
       <span id="serialSupport" class="status-pill">检测中</span>
@@ -234,10 +234,10 @@
           <label>
             <span>写入目标</span>
             <select id="firmwareTarget">
-              <option value="bootloader">0x0：bootloader 分区</option>
+              <option value="bootloader" selected>0x0：bootloader 分区</option>
               <option value="partition">0x8000：partition-table 分区</option>
               <option value="otaData">0xf000：ota_data 分区</option>
-              <option value="ota0" selected>0x20000：ota_0 app 分区</option>
+              <option value="ota0">0x20000：ota_0 app 分区</option>
               <option value="ota1">0x620000：ota_1 app 分区</option>
               <option value="otaBoth">0x20000 和 0x620000：同时写 ota_0 / ota_1</option>
             </select>
