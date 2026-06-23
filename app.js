@@ -15,6 +15,7 @@ const MAX_IMAGES = 24;
 const PARTITION_TABLE_OFFSET = 0x8000;
 const PARTITION_TABLE_SIZE = 0x1000;
 const FIRMWARE_VERSIONS_URL = "https://rlcd-update.wickenzh.workers.dev/firmware/versions.json";
+const FIRMWARE_LATEST_URL = "https://rlcd-update.wickenzh.workers.dev/firmware/latest.json";
 const DEFAULT_SUMMARY_NOTE = "资源包可同时包含 GIF 动图和静图；写入设备后重启，固件会优先加载自定义资源。";
 
 const serialSupport = $("#serialSupport");
@@ -1085,19 +1086,36 @@ function normalizeFirmwareImage(image, version, kind) {
   };
 }
 
-function normalizeFirmwareManifestItem(item) {
+function normalizeFirmwareManifestItem(item, options = {}) {
   if (!item || typeof item !== "object") return undefined;
+  const requireMerged = options.requireMerged !== false;
   const version = String(item.version || "").trim();
   if (!version) return undefined;
   const app = normalizeFirmwareImage(item.app, version, "app");
   const merged = normalizeFirmwareImage(item.merged, version, "merged");
-  if (!app || !merged) return undefined;
+  if (!app || (requireMerged && !merged)) return undefined;
   return {
     version,
     notes: String(item.notes || "").trim(),
     app,
     merged
   };
+}
+
+function normalizeLatestFirmwareManifest(manifest) {
+  if (!manifest || typeof manifest !== "object") return undefined;
+  if (manifest.app || manifest.merged) {
+    return normalizeFirmwareManifestItem(manifest, { requireMerged: false });
+  }
+  return normalizeFirmwareManifestItem({
+    version: manifest.version,
+    notes: manifest.notes,
+    app: {
+      url: manifest.url,
+      sha256: manifest.sha256,
+      size: manifest.size
+    }
+  }, { requireMerged: false });
 }
 
 function selectedRemoteFirmwareImage(kind = "merged") {
@@ -1119,9 +1137,16 @@ function setRemoteFirmwareManifest(index = 0, note = "") {
   $("#remoteFirmwareSelect").value = String(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
   const merged = selectedRemoteFirmwareImage("merged");
   const app = selectedRemoteFirmwareImage("app");
-  $("#firmwareWriteState").textContent = `在线固件：${remoteFirmwareManifest.version} / merged ${formatBytes(merged.size)}`;
+  $("#downloadFirmwareBtn").disabled = !merged || $("#firmwareSource").value !== "remote";
+  $("#firmwareWriteState").textContent = merged
+    ? `在线固件：${remoteFirmwareManifest.version} / merged ${formatBytes(merged.size)}`
+    : `在线固件：${remoteFirmwareManifest.version} / OTA app ${formatBytes(app.size)}`;
   const notes = remoteFirmwareManifest.notes ? `说明：${remoteFirmwareManifest.notes}。` : "";
-  $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。串口完整刷写使用 ${merged.assetName}，SHA-256 ${formatSha(merged.sha256)}；OTA 升级包为 ${app.assetName}，SHA-256 ${formatSha(app.sha256)}。${notes}请先下载并校验，通过后可烧录。`;
+  if (merged) {
+    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。串口完整刷写使用 ${merged.assetName}，SHA-256 ${formatSha(merged.sha256)}；OTA 升级包为 ${app.assetName}，SHA-256 ${formatSha(app.sha256)}。${notes}请先下载并校验，通过后可烧录。`;
+  } else {
+    $("#flashResult").textContent = `${note}已读取 Cloudflare Worker 最新固件：${remoteFirmwareManifest.version}。当前清单只包含 OTA app 包 ${app.assetName}，SHA-256 ${formatSha(app.sha256)}；串口完整刷写需要 versions.json 提供 merged.url / sha256 / size 后才会启用。${notes}`;
+  }
 }
 
 function renderRemoteFirmwareOptions(note = "") {
@@ -1130,7 +1155,10 @@ function renderRemoteFirmwareOptions(note = "") {
     const option = document.createElement("option");
     option.value = String(index);
     const note = manifest.notes ? ` / ${manifest.notes}` : "";
-    option.textContent = `${manifest.version} / merged ${formatBytes(manifest.merged.size)}${note}`;
+    const imageText = manifest.merged
+      ? `merged ${formatBytes(manifest.merged.size)}`
+      : `OTA app ${formatBytes(manifest.app.size)}`;
+    option.textContent = `${manifest.version} / ${imageText}${note}`;
     $("#remoteFirmwareSelect").appendChild(option);
   });
   setRemoteFirmwareManifest(0, note);
@@ -1284,6 +1312,7 @@ async function inspectAssetDevice() {
 async function loadRemoteFirmwareManifest() {
   $("#remoteFirmwareSelect").innerHTML = `<option value="">正在加载 Cloudflare Worker 清单</option>`;
   $("#firmwareWriteState").textContent = "正在加载在线固件清单";
+  $("#downloadFirmwareBtn").disabled = true;
   setFirmwareReady(false);
   verifiedFirmwareData = undefined;
   selectedFirmware = undefined;
@@ -1296,16 +1325,28 @@ async function loadRemoteFirmwareManifest() {
     if (!response.ok) throw new Error(`Cloudflare Worker 清单读取失败：HTTP ${response.status}`);
     const manifest = await response.json();
     if (!manifest || !Array.isArray(manifest.items)) throw new Error("Cloudflare Worker 清单格式异常。");
-    remoteFirmwareOptions = manifest.items.map(normalizeFirmwareManifestItem).filter(Boolean).slice(0, 10);
+    remoteFirmwareOptions = manifest.items.map((item) => normalizeFirmwareManifestItem(item)).filter(Boolean).slice(0, 10);
     if (remoteFirmwareOptions.length === 0) throw new Error("Cloudflare Worker 清单中未找到同时包含 app 和 merged 且可校验的固件。");
     const latestIndex = remoteFirmwareOptions.findIndex((item) => item.version === manifest.latest);
     renderRemoteFirmwareOptions();
     if (latestIndex > 0) setRemoteFirmwareManifest(latestIndex);
   } catch (error) {
-    remoteFirmwareOptions = [];
-    $("#remoteFirmwareSelect").innerHTML = `<option value="">在线固件加载失败</option>`;
-    $("#firmwareWriteState").textContent = "在线固件加载失败";
-    $("#flashResult").textContent = `${error.message} 请稍后刷新，或切换为自定义固件文件。`;
+    try {
+      const response = await fetch(`${FIRMWARE_LATEST_URL}?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) throw new Error(`latest.json 读取失败：HTTP ${response.status}`);
+      const latestManifest = normalizeLatestFirmwareManifest(await response.json());
+      if (!latestManifest) throw new Error("latest.json 清单格式异常。");
+      remoteFirmwareOptions = [latestManifest];
+      renderRemoteFirmwareOptions(`versions.json 暂不可用：${error.message}。已降级显示 latest.json；`);
+    } catch (fallbackError) {
+      remoteFirmwareOptions = [];
+      $("#remoteFirmwareSelect").innerHTML = `<option value="">在线固件加载失败</option>`;
+      $("#firmwareWriteState").textContent = "在线固件加载失败";
+      $("#flashResult").textContent = `${error.message} ${fallbackError.message} 请稍后刷新，或切换为自定义固件文件。`;
+    }
   }
 }
 
