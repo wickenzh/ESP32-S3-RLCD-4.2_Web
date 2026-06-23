@@ -30,7 +30,7 @@ https://wickenzh.github.io/ESP32-S3-RLCD-4.2_Web/
 - 图片资源制作：静图支持 JPG、PNG、WebP、BMP 等浏览器可读图片，转换为 `220×208`、1-bit packed。
 - GIF 资源制作：动图只支持 GIF，转换为 `84×84`、60 帧、整帧连续 1-bit bitstream。
 - 资源写入：先选择设备并读取分区表，确认 `assets` 分区为 `0xC20000` / `2M` 后，才能串口写入或清空资源分区。
-- 固件烧录：默认从 Cloudflare Worker 的 `versions.json` 选择最近版本，串口完整刷写使用 `merged.url`，下载后校验 SHA-256，通过后才允许串口烧录；也支持用户自行选择完整 merged bin。
+- 固件烧录：写入目标使用固定下拉菜单。在线固件使用 `app.url`，可写入 `ota_0`、`ota_1` 或同时写入两个 OTA app 分区；`bootloader.bin`、`partition-table.bin`、`ota_data_initial.bin` 需要切换为自定义文件并选择对应目标。
 - 离线缓存，便于打开页面后再切换到设备 AP。
 
 ## 在线固件仓库
@@ -47,9 +47,9 @@ https://rlcd-update.wickenzh.workers.dev/firmware/versions.json
 https://rlcd-update.wickenzh.workers.dev/firmware/latest.json
 ```
 
-上位机优先读取 `versions.json`，不读取 GitHub Release，不扫描 GitHub 仓库里的 bin 文件，也不直接访问 R2 Bucket。`items` 中每个版本需要同时提供 `app` 和 `merged` 的 `url`、`sha256`、`size`。OTA 升级使用 `app.url`；串口完整刷写使用 `merged.url`。网页下载固件后会计算本地 SHA-256，只有与清单记录完全一致才会启用后续操作；大小或 SHA-256 不一致会清除本次下载并提示重新下载。
+上位机优先读取 `versions.json`，不读取 GitHub Release，不扫描 GitHub 仓库里的 bin 文件，也不直接访问 R2 Bucket。`items` 中每个版本需要同时提供 `app` 和 `merged` 的 `url`、`sha256`、`size`。串口刷写 OTA app 分区时使用 `app.url`。网页下载固件后会计算本地 SHA-256，只有与清单记录完全一致才会启用后续操作；大小或 SHA-256 不一致会清除本次下载并提示重新下载。
 
-如果 `versions.json` 暂时不可用，页面会降级读取 `latest.json` 来显示当前最新 OTA app 包，避免在线固件区域直接加载失败；但在没有 `merged.url`、`merged.sha256`、`merged.size` 的情况下，串口完整刷写下载和烧录仍保持禁用。
+如果 `versions.json` 暂时不可用，页面会降级读取 `latest.json` 来显示当前最新 OTA app 包，避免在线固件区域直接加载失败。
 
 `firmware/manifest.example.json` 是 ESP Web Tools 示例。ESP-IDF v4+ 固件推荐使用 `esptool merge_bin` 生成的单个 merged bin，并写入 `0x0`。
 

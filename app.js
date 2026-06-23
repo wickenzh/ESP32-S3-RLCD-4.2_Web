@@ -17,6 +17,50 @@ const PARTITION_TABLE_SIZE = 0x1000;
 const FIRMWARE_VERSIONS_URL = "https://rlcd-update.wickenzh.workers.dev/firmware/versions.json";
 const FIRMWARE_LATEST_URL = "https://rlcd-update.wickenzh.workers.dev/firmware/latest.json";
 const DEFAULT_SUMMARY_NOTE = "资源包可同时包含 GIF 动图和静图；写入设备后重启，固件会优先加载自定义资源。";
+const FIRMWARE_TARGETS = {
+  bootloader: {
+    label: "0x0：bootloader.bin",
+    kind: "bootloader",
+    offsets: [0x0],
+    fileName: "bootloader.bin",
+    remoteImage: ""
+  },
+  partition: {
+    label: "0x8000：partition-table.bin",
+    kind: "partition-table",
+    offsets: [0x8000],
+    fileName: "partition-table.bin",
+    remoteImage: ""
+  },
+  otaData: {
+    label: "0xf000：ota_data_initial.bin",
+    kind: "ota_data",
+    offsets: [0xF000],
+    fileName: "ota_data_initial.bin",
+    remoteImage: ""
+  },
+  ota0: {
+    label: "0x20000：app 到 ota_0",
+    kind: "app",
+    offsets: [0x20000],
+    fileName: "app bin",
+    remoteImage: "app"
+  },
+  ota1: {
+    label: "0x620000：app 到 ota_1",
+    kind: "app",
+    offsets: [0x620000],
+    fileName: "app bin",
+    remoteImage: "app"
+  },
+  otaBoth: {
+    label: "0x20000 + 0x620000：app 到 ota_0 / ota_1",
+    kind: "app",
+    offsets: [0x20000, 0x620000],
+    fileName: "app bin",
+    remoteImage: "app"
+  }
+};
 
 const serialSupport = $("#serialSupport");
 const connectSerialBtn = $("#connectSerialBtn");
@@ -1131,6 +1175,56 @@ function selectedRemoteFirmwareImage(kind = "merged") {
   return remoteFirmwareManifest[kind] || remoteFirmwareManifest.merged;
 }
 
+function currentFirmwareTarget() {
+  return FIRMWARE_TARGETS[$("#firmwareTarget").value] || FIRMWARE_TARGETS.ota0;
+}
+
+function canUseRemoteFirmwareForTarget(target = currentFirmwareTarget()) {
+  return Boolean(target.remoteImage && selectedRemoteFirmwareImage(target.remoteImage));
+}
+
+function updateFirmwareDownloadButton() {
+  const useRemote = $("#firmwareSource").value === "remote";
+  $("#downloadFirmwareBtn").disabled = !(useRemote && canUseRemoteFirmwareForTarget());
+}
+
+function firmwareTargetOffsetText(target = currentFirmwareTarget()) {
+  return target.offsets.map((offset) => hex(offset)).join(" + ");
+}
+
+function isLocalFirmwareFileAllowed(file, target = currentFirmwareTarget()) {
+  if (!file) return false;
+  const name = file.name.toLowerCase();
+  if (target.kind === "app") return name.endsWith(".bin");
+  return name === target.fileName.toLowerCase();
+}
+
+function firmwareTargetHint(target = currentFirmwareTarget()) {
+  if (target.kind === "app") return `${target.label}，请选择 app bin 或使用在线固件。`;
+  return `${target.label}，只能选择 ${target.fileName}。`;
+}
+
+function refreshFirmwareTargetState() {
+  const target = currentFirmwareTarget();
+  updateFirmwareDownloadButton();
+  if ($("#firmwareSource").value === "remote") {
+    if (remoteFirmwareManifest) setRemoteFirmwareManifest(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
+    if (selectedFirmware?.source === "remote") {
+      setFirmwareReady(Boolean(verifiedFirmwareData && selectedFirmware.targetKind === target.kind));
+    }
+    return;
+  }
+  const file = $("#firmwareInput").files?.[0];
+  selectedFirmware = file ? { name: file.name, size: file.size, source: "local", file } : undefined;
+  setFirmwareReady(Boolean(selectedFirmware && isLocalFirmwareFileAllowed(file, target)));
+  $("#firmwareWriteState").textContent = selectedFirmware
+    ? `${selectedFirmware.name} / ${formatBytes(selectedFirmware.size)}`
+    : "等待固件文件";
+  $("#flashResult").textContent = selectedFirmware
+    ? (isLocalFirmwareFileAllowed(file, target) ? `已选择自定义固件文件。${firmwareTargetHint(target)}` : `${firmwareTargetHint(target)} 当前文件不匹配。`)
+    : firmwareTargetHint(target);
+}
+
 function setRemoteFirmwareManifest(index = 0, note = "") {
   remoteFirmwareManifest = remoteFirmwareOptions[index] || remoteFirmwareOptions[0];
   verifiedFirmwareData = undefined;
@@ -1145,15 +1239,20 @@ function setRemoteFirmwareManifest(index = 0, note = "") {
   $("#remoteFirmwareSelect").value = String(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
   const merged = selectedRemoteFirmwareImage("merged");
   const app = selectedRemoteFirmwareImage("app");
-  $("#downloadFirmwareBtn").disabled = !merged || $("#firmwareSource").value !== "remote";
+  const target = currentFirmwareTarget();
+  updateFirmwareDownloadButton();
   $("#firmwareWriteState").textContent = merged
     ? `在线固件：${remoteFirmwareManifest.version} / merged ${formatBytes(merged.size)}`
     : `在线固件：${remoteFirmwareManifest.version} / OTA app ${formatBytes(app.size)}`;
   const notes = remoteFirmwareManifest.notes ? `说明：${remoteFirmwareManifest.notes}。` : "";
+  if (!target.remoteImage) {
+    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。当前目标：${target.label}，不支持在线 app 固件，请切换为自定义固件文件并选择 ${target.fileName}。${notes}`;
+    return;
+  }
   if (merged) {
-    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。串口完整刷写使用 ${truncateMiddle(merged.assetName)}，SHA-256 ${formatSha(merged.sha256)}；OTA 升级包为 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}。${notes}请先下载并校验，通过后可烧录。`;
+    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。当前目标：${target.label}。在线固件将使用 OTA app 包 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}；merged 包 ${truncateMiddle(merged.assetName)} 仅用于核对完整镜像信息。${notes}请先下载并校验，通过后可烧录。`;
   } else {
-    $("#flashResult").textContent = `${note}已读取 Cloudflare Worker 最新固件：${remoteFirmwareManifest.version}。当前清单只包含 OTA app 包 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}；串口完整刷写需要 versions.json 提供 merged.url / sha256 / size 后才会启用。${notes}`;
+    $("#flashResult").textContent = `${note}已读取 Cloudflare Worker 最新固件：${remoteFirmwareManifest.version}。当前目标：${target.label}。在线固件可用于 app 分区，OTA app 包 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}。${notes}`;
   }
 }
 
@@ -1364,10 +1463,13 @@ async function downloadRemoteFirmware() {
   if (!remoteFirmwareManifest) return;
   setProgress("firmwareWrite", 0, 100);
   setFirmwareReady(false);
-  const firmwareImage = selectedRemoteFirmwareImage("merged");
-  if (!firmwareImage) throw new Error("当前版本没有可用于串口完整刷写的 merged 固件。");
+  const target = currentFirmwareTarget();
+  const firmwareImage = target.remoteImage ? selectedRemoteFirmwareImage(target.remoteImage) : undefined;
+  if (!firmwareImage) {
+    throw new Error(`${target.label} 不支持在线固件，请切换为自定义固件文件并选择 ${target.fileName}。`);
+  }
   $("#firmwareWriteState").textContent = "正在下载在线固件";
-  $("#flashResult").textContent = `正在下载 ${remoteFirmwareManifest.version} 的完整 merged 固件...`;
+  $("#flashResult").textContent = `正在下载 ${remoteFirmwareManifest.version} 的 ${target.label} 固件...`;
   const response = await fetch(firmwareImage.url, { cache: "no-store" });
   if (!response.ok) throw new Error(`固件下载失败：HTTP ${response.status}`);
   const total = Number(response.headers.get("content-length")) || Number(firmwareImage.size) || 0;
@@ -1413,12 +1515,13 @@ async function downloadRemoteFirmware() {
     source: "remote",
     sha256: actualSha,
     version: remoteFirmwareManifest.version,
-    url: firmwareImage.url
+    url: firmwareImage.url,
+    targetKind: target.kind
   };
   setProgress("firmwareWrite", 100, 100);
   setFirmwareReady(true);
   $("#firmwareWriteState").textContent = `校验通过：${selectedFirmware.name}`;
-  $("#flashResult").textContent = `完整 merged 固件已下载并通过 SHA-256 校验：${formatSha(actualSha)}。现在可以串口烧录。`;
+  $("#flashResult").textContent = `${target.label} 固件已下载并通过 SHA-256 校验：${formatSha(actualSha)}。现在可以串口烧录到 ${firmwareTargetOffsetText(target)}。`;
 }
 
 async function importEsptool() {
@@ -1583,33 +1686,44 @@ async function eraseAssets() {
 
 async function writeFirmware() {
   if (!selectedFirmware) return;
-  const offset = Number.parseInt($("#firmwareOffset").value.trim(), 16);
-  if (!Number.isFinite(offset)) {
-    $("#flashResult").textContent = "写入地址无效，请使用 0x0 这样的十六进制格式。";
-    return;
-  }
+  const target = currentFirmwareTarget();
   let data;
   if (selectedFirmware.source === "remote") {
     if (!verifiedFirmwareData) {
       $("#flashResult").textContent = "在线固件尚未下载并校验，请先点击“下载并校验固件”。";
       return;
     }
+    if (selectedFirmware.targetKind !== target.kind) {
+      $("#flashResult").textContent = `已校验的在线固件不匹配当前目标：${target.label}。请重新下载并校验。`;
+      setFirmwareReady(false);
+      return;
+    }
     data = verifiedFirmwareData;
   } else {
+    if (!isLocalFirmwareFileAllowed(selectedFirmware.file, target)) {
+      $("#flashResult").textContent = `${target.label} 只能写入 ${target.fileName}。请重新选择正确文件。`;
+      return;
+    }
     data = new Uint8Array(await selectedFirmware.file.arrayBuffer());
   }
   $("#firmwareWriteState").textContent = `准备写入 ${selectedFirmware.name}`;
   try {
-    await writeBinaryWithEsptool({
-      data,
-      offset,
-      baudRateValue: $("#firmwareBaudRate").value,
-      stateId: "firmwareWriteState",
-      percentId: "firmwareWritePercent",
-      progressId: "firmwareWriteProgress",
-      log: (text) => { $("#flashResult").textContent = text.trim() || $("#flashResult").textContent; }
-    });
-    $("#flashResult").textContent = "完整固件烧录完成，设备正在重启。";
+    for (let i = 0; i < target.offsets.length; i += 1) {
+      const offset = target.offsets[i];
+      $("#firmwareWriteState").textContent = target.offsets.length > 1
+        ? `写入 ${i + 1}/${target.offsets.length}：${hex(offset)}`
+        : `写入 ${hex(offset)}`;
+      await writeBinaryWithEsptool({
+        data,
+        offset,
+        baudRateValue: $("#firmwareBaudRate").value,
+        stateId: "firmwareWriteState",
+        percentId: "firmwareWritePercent",
+        progressId: "firmwareWriteProgress",
+        log: (text) => { $("#flashResult").textContent = text.trim() || $("#flashResult").textContent; }
+      });
+    }
+    $("#flashResult").textContent = `${target.label} 烧录完成，设备正在重启。`;
   } catch (error) {
     $("#firmwareWriteState").textContent = "烧录失败";
     $("#flashResult").textContent = `烧录失败：${error.message}`;
@@ -1763,23 +1877,25 @@ $("#firmwareSource").addEventListener("change", () => {
   const useRemote = source === "remote";
   $("#remoteFirmwareSelect").disabled = !useRemote;
   $("#refreshFirmwareBtn").disabled = !useRemote;
-  $("#downloadFirmwareBtn").disabled = !useRemote;
   $("#firmwareInput").disabled = useRemote;
   selectedFirmware = undefined;
   verifiedFirmwareData = undefined;
   setFirmwareReady(false);
   setProgress("firmwareWrite", 0, 100);
   if (useRemote) {
+    updateFirmwareDownloadButton();
     if (remoteFirmwareManifest) {
       setRemoteFirmwareManifest(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
     } else {
       loadRemoteFirmwareManifest().catch((error) => { $("#flashResult").textContent = error.message; });
     }
   } else {
+    updateFirmwareDownloadButton();
     $("#firmwareWriteState").textContent = "等待自定义固件文件";
-    $("#flashResult").textContent = "请选择本地 merged bin 文件。自定义固件不会自动校验仓库 SHA-256。";
+    $("#flashResult").textContent = firmwareTargetHint();
   }
 });
+$("#firmwareTarget").addEventListener("change", refreshFirmwareTargetState);
 $("#remoteFirmwareSelect").addEventListener("change", () => {
   setRemoteFirmwareManifest(Number($("#remoteFirmwareSelect").value) || 0);
 });
@@ -1798,11 +1914,14 @@ $("#downloadFirmwareBtn").addEventListener("click", () => {
 });
 $("#firmwareInput").addEventListener("change", () => {
   const file = $("#firmwareInput").files?.[0];
+  const target = currentFirmwareTarget();
   verifiedFirmwareData = undefined;
   selectedFirmware = file ? { name: file.name, size: file.size, source: "local", file } : undefined;
-  setFirmwareReady(Boolean(selectedFirmware));
+  setFirmwareReady(Boolean(selectedFirmware && isLocalFirmwareFileAllowed(file, target)));
   $("#firmwareWriteState").textContent = selectedFirmware ? `${selectedFirmware.name} / ${formatBytes(selectedFirmware.size)}` : "等待固件文件";
-  $("#flashResult").textContent = selectedFirmware ? "已选择自定义固件文件。请确认来源可信后烧录。" : "请选择本地 merged bin 文件。";
+  $("#flashResult").textContent = selectedFirmware
+    ? (isLocalFirmwareFileAllowed(file, target) ? `已选择自定义固件文件。${firmwareTargetHint(target)}` : `${firmwareTargetHint(target)} 当前文件不匹配。`)
+    : firmwareTargetHint(target);
 });
 $("#writeFirmwareBtn").addEventListener("click", writeFirmware);
 $("#loadInstallerBtn").addEventListener("click", () => {
