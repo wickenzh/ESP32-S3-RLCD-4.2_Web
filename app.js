@@ -14,29 +14,8 @@ const IMAGE_HEIGHT = 208;
 const MAX_IMAGES = 24;
 const PARTITION_TABLE_OFFSET = 0x8000;
 const PARTITION_TABLE_SIZE = 0x1000;
-const FIRMWARE_RELEASE_API_URL = "https://api.github.com/repos/wickenzh/ESP32-S3-RLCD-4.2_UP/releases?per_page=20";
-const FIRMWARE_RELEASE_ASSET_NAME = "merged.bin";
+const FIRMWARE_VERSIONS_URL = "https://rlcd-update.wickenzh.workers.dev/firmware/versions.json";
 const DEFAULT_SUMMARY_NOTE = "资源包可同时包含 GIF 动图和静图；写入设备后重启，固件会优先加载自定义资源。";
-const FALLBACK_FIRMWARE_RELEASES = [
-  {
-    version: "v1.4.1",
-    assetName: "weather_clock_v1.4.1_merged.bin",
-    url: "https://github.com/wickenzh/ESP32-S3-RLCD-4.2_UP/releases/download/v1.4.1/weather_clock_v1.4.1_merged.bin",
-    sha256: "0fc9f78e06a7435401fb13d281559d6afd95e8e8c17398752364059ddfd9dd02",
-    size: 5753824,
-    releaseUrl: "https://github.com/wickenzh/ESP32-S3-RLCD-4.2_UP/releases/tag/v1.4.1",
-    fallback: true
-  },
-  {
-    version: "v1.4.0",
-    assetName: "weather_clock_v1.4.0_merged.bin",
-    url: "https://github.com/wickenzh/ESP32-S3-RLCD-4.2_UP/releases/download/v1.4.0/weather_clock_v1.4.0_merged.bin",
-    sha256: "faa01c96c4e0277194f0b6a5c69f6620e6fe6187f2653c33437660ab71e911d4",
-    size: 5753824,
-    releaseUrl: "https://github.com/wickenzh/ESP32-S3-RLCD-4.2_UP/releases/tag/v1.4.0",
-    fallback: true
-  }
-];
 
 const serialSupport = $("#serialSupport");
 const connectSerialBtn = $("#connectSerialBtn");
@@ -1078,61 +1057,52 @@ function formatSha(value) {
   return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }
 
-function extractSha256(text, assetName = FIRMWARE_RELEASE_ASSET_NAME) {
-  const normalizedName = assetName.toLowerCase();
-  const lines = String(text || "").split(/\r?\n/);
-  for (const line of lines) {
-    const sha = line.match(/\b[a-fA-F0-9]{64}\b/)?.[0];
-    if (!sha) continue;
-    const lowerLine = line.toLowerCase();
-    if (lines.length === 1 || lowerLine.includes(normalizedName) || lowerLine.includes("merged.bin")) return sha.toLowerCase();
+function isValidSha256(value) {
+  return /^[a-fA-F0-9]{64}$/.test(String(value || ""));
+}
+
+function filenameFromUrl(url, fallback) {
+  try {
+    const pathname = new URL(url).pathname;
+    return decodeURIComponent(pathname.split("/").filter(Boolean).pop() || fallback);
+  } catch {
+    return fallback;
   }
-  return "";
 }
 
-async function resolveReleaseAssetSha256(release, firmwareAsset) {
-  const digest = firmwareAsset.digest || firmwareAsset.sha256;
-  if (typeof digest === "string") {
-    const sha = digest.match(/[a-fA-F0-9]{64}/)?.[0];
-    if (sha) return sha.toLowerCase();
-  }
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  const checksumAsset = assets.find((asset) => {
-    const name = asset.name?.toLowerCase() || "";
-    return name === `${firmwareAsset.name.toLowerCase()}.sha256`
-      || name === "merged.bin.sha256"
-      || name === "sha256sums"
-      || name === "sha256sums.txt"
-      || name === "sha256.txt"
-      || name.endsWith(".sha256");
-  });
-  if (!checksumAsset?.browser_download_url) return "";
-  const response = await fetch(`${checksumAsset.browser_download_url}?t=${Date.now()}`, { cache: "no-store" });
-  if (!response.ok) return "";
-  return extractSha256(await response.text(), firmwareAsset.name);
-}
-
-function findMergedFirmwareAsset(release) {
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  return assets.find((asset) => asset.name?.toLowerCase().endsWith("_merged.bin"))
-    || assets.find((asset) => asset.name === FIRMWARE_RELEASE_ASSET_NAME)
-    || assets.find((asset) => asset.name?.toLowerCase().endsWith(FIRMWARE_RELEASE_ASSET_NAME));
-}
-
-async function releaseToFirmwareManifest(release) {
-  const firmwareAsset = findMergedFirmwareAsset(release);
-  if (!firmwareAsset?.browser_download_url) return undefined;
-  const checksum = await resolveReleaseAssetSha256(release, firmwareAsset);
-  if (!checksum) return undefined;
+function normalizeFirmwareImage(image, version, kind) {
+  if (!image || typeof image !== "object") return undefined;
+  const url = String(image.url || "").trim();
+  const sha256 = String(image.sha256 || "").trim().toLowerCase();
+  const size = Number(image.size);
+  if (!url || !isValidSha256(sha256) || !Number.isFinite(size) || size <= 0) return undefined;
   return {
-    version: release.tag_name || release.name || "latest",
-    url: firmwareAsset.browser_download_url,
-    sha256: checksum,
-    size: firmwareAsset.size,
-    assetName: firmwareAsset.name,
-    releaseUrl: release.html_url,
-    fallback: false
+    kind,
+    url,
+    sha256,
+    size,
+    assetName: filenameFromUrl(url, `weather_clock_${version}_${kind}.bin`)
   };
+}
+
+function normalizeFirmwareManifestItem(item) {
+  if (!item || typeof item !== "object") return undefined;
+  const version = String(item.version || "").trim();
+  if (!version) return undefined;
+  const app = normalizeFirmwareImage(item.app, version, "app");
+  const merged = normalizeFirmwareImage(item.merged, version, "merged");
+  if (!app || !merged) return undefined;
+  return {
+    version,
+    notes: String(item.notes || "").trim(),
+    app,
+    merged
+  };
+}
+
+function selectedRemoteFirmwareImage(kind = "merged") {
+  if (!remoteFirmwareManifest) return undefined;
+  return remoteFirmwareManifest[kind] || remoteFirmwareManifest.merged;
 }
 
 function setRemoteFirmwareManifest(index = 0, note = "") {
@@ -1143,13 +1113,15 @@ function setRemoteFirmwareManifest(index = 0, note = "") {
   setProgress("firmwareWrite", 0, 100);
   if (!remoteFirmwareManifest) {
     $("#firmwareWriteState").textContent = "在线固件加载失败";
-    $("#flashResult").textContent = "未找到可用的 Github Release merged.bin。";
+    $("#flashResult").textContent = "未找到可用的 Cloudflare Worker 固件版本清单。";
     return;
   }
   $("#remoteFirmwareSelect").value = String(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
-  $("#firmwareWriteState").textContent = `在线固件：${remoteFirmwareManifest.version} / ${formatBytes(remoteFirmwareManifest.size)}`;
-  const sourceText = remoteFirmwareManifest.fallback ? "当前使用内置版本列表；刷新后会再次尝试读取 Github Release。" : "来自 Github Release。";
-  $("#flashResult").textContent = `${note}在线固件已选择：${remoteFirmwareManifest.version} / ${remoteFirmwareManifest.assetName}，SHA-256 ${formatSha(remoteFirmwareManifest.sha256)}。${sourceText} 请先下载并校验，通过后可烧录。`;
+  const merged = selectedRemoteFirmwareImage("merged");
+  const app = selectedRemoteFirmwareImage("app");
+  $("#firmwareWriteState").textContent = `在线固件：${remoteFirmwareManifest.version} / merged ${formatBytes(merged.size)}`;
+  const notes = remoteFirmwareManifest.notes ? `说明：${remoteFirmwareManifest.notes}。` : "";
+  $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。串口完整刷写使用 ${merged.assetName}，SHA-256 ${formatSha(merged.sha256)}；OTA 升级包为 ${app.assetName}，SHA-256 ${formatSha(app.sha256)}。${notes}请先下载并校验，通过后可烧录。`;
 }
 
 function renderRemoteFirmwareOptions(note = "") {
@@ -1157,7 +1129,8 @@ function renderRemoteFirmwareOptions(note = "") {
   remoteFirmwareOptions.forEach((manifest, index) => {
     const option = document.createElement("option");
     option.value = String(index);
-    option.textContent = `${manifest.version} / ${manifest.assetName} / ${formatBytes(manifest.size)}`;
+    const note = manifest.notes ? ` / ${manifest.notes}` : "";
+    option.textContent = `${manifest.version} / merged ${formatBytes(manifest.merged.size)}${note}`;
     $("#remoteFirmwareSelect").appendChild(option);
   });
   setRemoteFirmwareManifest(0, note);
@@ -1309,27 +1282,30 @@ async function inspectAssetDevice() {
 }
 
 async function loadRemoteFirmwareManifest() {
-  $("#remoteFirmwareSelect").innerHTML = `<option value="">正在加载 Github Release</option>`;
+  $("#remoteFirmwareSelect").innerHTML = `<option value="">正在加载 Cloudflare Worker 清单</option>`;
   $("#firmwareWriteState").textContent = "正在加载在线固件清单";
   setFirmwareReady(false);
   verifiedFirmwareData = undefined;
   selectedFirmware = undefined;
   remoteFirmwareOptions = [];
   try {
-    const response = await fetch(`${FIRMWARE_RELEASE_API_URL}&t=${Date.now()}`, {
+    const response = await fetch(`${FIRMWARE_VERSIONS_URL}?t=${Date.now()}`, {
       cache: "no-store",
-      headers: { Accept: "application/vnd.github+json" }
+      headers: { Accept: "application/json" }
     });
-    if (!response.ok) throw new Error(`Github Release 读取失败：HTTP ${response.status}`);
-    const releases = await response.json();
-    if (!Array.isArray(releases)) throw new Error("Github Release 返回格式异常。");
-    const manifests = await Promise.all(releases.map(releaseToFirmwareManifest));
-    remoteFirmwareOptions = manifests.filter(Boolean);
-    if (remoteFirmwareOptions.length === 0) throw new Error(`Github Release 中未找到可校验的 ${FIRMWARE_RELEASE_ASSET_NAME}`);
+    if (!response.ok) throw new Error(`Cloudflare Worker 清单读取失败：HTTP ${response.status}`);
+    const manifest = await response.json();
+    if (!manifest || !Array.isArray(manifest.items)) throw new Error("Cloudflare Worker 清单格式异常。");
+    remoteFirmwareOptions = manifest.items.map(normalizeFirmwareManifestItem).filter(Boolean).slice(0, 10);
+    if (remoteFirmwareOptions.length === 0) throw new Error("Cloudflare Worker 清单中未找到同时包含 app 和 merged 且可校验的固件。");
+    const latestIndex = remoteFirmwareOptions.findIndex((item) => item.version === manifest.latest);
     renderRemoteFirmwareOptions();
+    if (latestIndex > 0) setRemoteFirmwareManifest(latestIndex);
   } catch (error) {
-    remoteFirmwareOptions = FALLBACK_FIRMWARE_RELEASES.slice();
-    renderRemoteFirmwareOptions(`Github Release 在线读取失败：${error.message}。`);
+    remoteFirmwareOptions = [];
+    $("#remoteFirmwareSelect").innerHTML = `<option value="">在线固件加载失败</option>`;
+    $("#firmwareWriteState").textContent = "在线固件加载失败";
+    $("#flashResult").textContent = `${error.message} 请稍后刷新，或切换为自定义固件文件。`;
   }
 }
 
@@ -1338,11 +1314,13 @@ async function downloadRemoteFirmware() {
   if (!remoteFirmwareManifest) return;
   setProgress("firmwareWrite", 0, 100);
   setFirmwareReady(false);
+  const firmwareImage = selectedRemoteFirmwareImage("merged");
+  if (!firmwareImage) throw new Error("当前版本没有可用于串口完整刷写的 merged 固件。");
   $("#firmwareWriteState").textContent = "正在下载在线固件";
-  $("#flashResult").textContent = `正在下载 ${remoteFirmwareManifest.version || "latest"}...`;
-  const response = await fetch(remoteFirmwareManifest.url, { cache: "no-store" });
+  $("#flashResult").textContent = `正在下载 ${remoteFirmwareManifest.version} 的完整 merged 固件...`;
+  const response = await fetch(firmwareImage.url, { cache: "no-store" });
   if (!response.ok) throw new Error(`固件下载失败：HTTP ${response.status}`);
-  const total = Number(response.headers.get("content-length")) || Number(remoteFirmwareManifest.size) || 0;
+  const total = Number(response.headers.get("content-length")) || Number(firmwareImage.size) || 0;
   const chunks = [];
   let received = 0;
   if (response.body?.getReader) {
@@ -1366,27 +1344,31 @@ async function downloadRemoteFirmware() {
     data.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  if (remoteFirmwareManifest.size && data.byteLength !== Number(remoteFirmwareManifest.size)) {
-    throw new Error(`固件大小不匹配：${formatBytes(data.byteLength)} / ${formatBytes(Number(remoteFirmwareManifest.size))}`);
+  if (firmwareImage.size && data.byteLength !== Number(firmwareImage.size)) {
+    verifiedFirmwareData = undefined;
+    selectedFirmware = undefined;
+    throw new Error(`固件大小不匹配，已清除本次下载：${formatBytes(data.byteLength)} / ${formatBytes(Number(firmwareImage.size))}`);
   }
   $("#firmwareWriteState").textContent = "正在校验 SHA-256";
   const actualSha = await sha256Hex(data);
-  if (actualSha.toLowerCase() !== remoteFirmwareManifest.sha256.toLowerCase()) {
+  if (actualSha.toLowerCase() !== firmwareImage.sha256.toLowerCase()) {
     verifiedFirmwareData = undefined;
     selectedFirmware = undefined;
-    throw new Error(`SHA-256 校验失败：${formatSha(actualSha)} != ${formatSha(remoteFirmwareManifest.sha256)}`);
+    throw new Error(`SHA-256 校验失败，已清除本次下载，请重新下载：${formatSha(actualSha)} != ${formatSha(firmwareImage.sha256)}`);
   }
   verifiedFirmwareData = data;
   selectedFirmware = {
-    name: `Github ${remoteFirmwareManifest.version || "latest"}`,
+    name: `Worker ${remoteFirmwareManifest.version} ${firmwareImage.assetName}`,
     size: data.byteLength,
     source: "remote",
-    sha256: actualSha
+    sha256: actualSha,
+    version: remoteFirmwareManifest.version,
+    url: firmwareImage.url
   };
   setProgress("firmwareWrite", 100, 100);
   setFirmwareReady(true);
   $("#firmwareWriteState").textContent = `校验通过：${selectedFirmware.name}`;
-  $("#flashResult").textContent = `在线固件已下载并通过 SHA-256 校验：${formatSha(actualSha)}。现在可以串口烧录。`;
+  $("#flashResult").textContent = `完整 merged 固件已下载并通过 SHA-256 校验：${formatSha(actualSha)}。现在可以串口烧录。`;
 }
 
 async function importEsptool() {
@@ -1726,7 +1708,7 @@ $("#downloadAssetsBtn").addEventListener("click", downloadAssets);
 $("#selectAssetDeviceBtn").addEventListener("click", inspectAssetDevice);
 $("#writeAssetsBtn").addEventListener("click", writeAssets);
 $("#eraseAssetsBtn").addEventListener("click", eraseAssets);
-  $("#firmwareSource").addEventListener("change", () => {
+$("#firmwareSource").addEventListener("change", () => {
   const source = $("#firmwareSource").value;
   const useRemote = source === "remote";
   $("#remoteFirmwareSelect").disabled = !useRemote;
@@ -1739,8 +1721,7 @@ $("#eraseAssetsBtn").addEventListener("click", eraseAssets);
   setProgress("firmwareWrite", 0, 100);
   if (useRemote) {
     if (remoteFirmwareManifest) {
-      $("#firmwareWriteState").textContent = `在线固件：${remoteFirmwareManifest.version || "latest"} / ${formatBytes(remoteFirmwareManifest.size)}`;
-      $("#flashResult").textContent = `在线固件已选择：${remoteFirmwareManifest.version || "latest"}。请下载并校验后烧录。`;
+      setRemoteFirmwareManifest(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
     } else {
       loadRemoteFirmwareManifest().catch((error) => { $("#flashResult").textContent = error.message; });
     }

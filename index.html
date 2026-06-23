@@ -18,7 +18,7 @@
     </div>
     <div class="top-meta">
       <span>使用此服务需要 Edge 浏览器或 Chrome 浏览器。</span>
-      <span><b>v0.0.12</b> · <span id="cacheState">离线缓存准备中</span></span>
+      <span><b>v0.0.13</b> · <span id="cacheState">离线缓存准备中</span></span>
     </div>
     <div class="top-actions">
       <span id="serialSupport" class="status-pill">检测中</span>
@@ -217,7 +217,7 @@
           <label>
             <span>固件来源</span>
             <select id="firmwareSource">
-              <option value="remote" selected>Github Release</option>
+              <option value="remote" selected>Cloudflare Worker</option>
               <option value="local">自定义固件文件</option>
             </select>
           </label>
@@ -256,7 +256,7 @@
           <div class="progress-head"><span id="firmwareWriteState">等待固件文件</span><strong id="firmwareWritePercent">0%</strong></div>
           <progress id="firmwareWriteProgress" value="0" max="100"></progress>
         </div>
-        <output id="flashResult" class="output-box">默认使用 Github Release 中的 merged.bin。在线固件下载后必须通过 SHA-256 校验才允许烧录，也可以切换为自定义固件文件。</output>
+        <output id="flashResult" class="output-box">默认读取 Cloudflare Worker 提供的最近版本清单。串口完整刷写使用 merged.bin，下载后必须通过 SHA-256 校验才允许烧录，也可以切换为自定义固件文件。</output>
       </section>
     </section>
   </main>
