@@ -250,6 +250,7 @@ textarea {
 select {
   height: 38px;
   padding: 0 10px;
+  max-width: 100%;
 }
 
 input {
@@ -526,6 +527,12 @@ input[type="range"] {
 .form-grid label {
   display: grid;
   gap: 6px;
+  min-width: 0;
+}
+
+.form-grid select {
+  width: 100%;
+  min-width: 0;
 }
 
 .action-strip {

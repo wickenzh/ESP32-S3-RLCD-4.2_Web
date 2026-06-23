@@ -1058,6 +1058,14 @@ function formatSha(value) {
   return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }
 
+function truncateMiddle(text, maxLength = 34) {
+  const value = String(text || "");
+  if (value.length <= maxLength) return value;
+  const keepStart = Math.max(8, Math.ceil((maxLength - 3) * 0.58));
+  const keepEnd = Math.max(6, maxLength - 3 - keepStart);
+  return `${value.slice(0, keepStart)}...${value.slice(-keepEnd)}`;
+}
+
 function isValidSha256(value) {
   return /^[a-fA-F0-9]{64}$/.test(String(value || ""));
 }
@@ -1143,9 +1151,9 @@ function setRemoteFirmwareManifest(index = 0, note = "") {
     : `在线固件：${remoteFirmwareManifest.version} / OTA app ${formatBytes(app.size)}`;
   const notes = remoteFirmwareManifest.notes ? `说明：${remoteFirmwareManifest.notes}。` : "";
   if (merged) {
-    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。串口完整刷写使用 ${merged.assetName}，SHA-256 ${formatSha(merged.sha256)}；OTA 升级包为 ${app.assetName}，SHA-256 ${formatSha(app.sha256)}。${notes}请先下载并校验，通过后可烧录。`;
+    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。串口完整刷写使用 ${truncateMiddle(merged.assetName)}，SHA-256 ${formatSha(merged.sha256)}；OTA 升级包为 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}。${notes}请先下载并校验，通过后可烧录。`;
   } else {
-    $("#flashResult").textContent = `${note}已读取 Cloudflare Worker 最新固件：${remoteFirmwareManifest.version}。当前清单只包含 OTA app 包 ${app.assetName}，SHA-256 ${formatSha(app.sha256)}；串口完整刷写需要 versions.json 提供 merged.url / sha256 / size 后才会启用。${notes}`;
+    $("#flashResult").textContent = `${note}已读取 Cloudflare Worker 最新固件：${remoteFirmwareManifest.version}。当前清单只包含 OTA app 包 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}；串口完整刷写需要 versions.json 提供 merged.url / sha256 / size 后才会启用。${notes}`;
   }
 }
 
@@ -1154,11 +1162,12 @@ function renderRemoteFirmwareOptions(note = "") {
   remoteFirmwareOptions.forEach((manifest, index) => {
     const option = document.createElement("option");
     option.value = String(index);
-    const note = manifest.notes ? ` / ${manifest.notes}` : "";
     const imageText = manifest.merged
       ? `merged ${formatBytes(manifest.merged.size)}`
       : `OTA app ${formatBytes(manifest.app.size)}`;
-    option.textContent = `${manifest.version} / ${imageText}${note}`;
+    const assetName = manifest.merged?.assetName || manifest.app.assetName;
+    option.textContent = `${manifest.version} / ${truncateMiddle(assetName, 30)} / ${imageText}`;
+    option.title = `${manifest.version} / ${assetName}${manifest.notes ? ` / ${manifest.notes}` : ""}`;
     $("#remoteFirmwareSelect").appendChild(option);
   });
   setRemoteFirmwareManifest(0, note);
@@ -1399,7 +1408,7 @@ async function downloadRemoteFirmware() {
   }
   verifiedFirmwareData = data;
   selectedFirmware = {
-    name: `Worker ${remoteFirmwareManifest.version} ${firmwareImage.assetName}`,
+    name: `Worker ${remoteFirmwareManifest.version} ${truncateMiddle(firmwareImage.assetName)}`,
     size: data.byteLength,
     source: "remote",
     sha256: actualSha,
