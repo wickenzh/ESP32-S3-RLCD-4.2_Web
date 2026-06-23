@@ -30,7 +30,7 @@ https://wickenzh.github.io/ESP32-S3-RLCD-4.2_Web/
 - 图片资源制作：静图支持 JPG、PNG、WebP、BMP 等浏览器可读图片，转换为 `220×208`、1-bit packed。
 - GIF 资源制作：动图只支持 GIF，转换为 `84×84`、60 帧、整帧连续 1-bit bitstream。
 - 资源写入：先选择设备并读取分区表，确认 `assets` 分区为 `0xC20000` / `2M` 后，才能串口写入或清空资源分区。
-- 固件烧录：写入目标使用固定下拉菜单。在线固件使用 `app.url`，可写入 `ota_0`、`ota_1` 或同时写入两个 OTA app 分区；`bootloader.bin`、`partition-table.bin`、`ota_data_initial.bin` 需要切换为自定义文件并选择对应目标。
+- 固件烧录：写入目标使用固定下拉菜单，目标只决定写入偏移，不强制绑定文件名。在线固件使用 `app.url`，自定义 `.bin` 文件也可写入任意目标；用户需要自行确认所选 bin 与目标分区匹配。
 - 离线缓存，便于打开页面后再切换到设备 AP。
 
 ## 在线固件仓库

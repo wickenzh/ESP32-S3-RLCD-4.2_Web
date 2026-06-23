@@ -19,45 +19,39 @@ const FIRMWARE_LATEST_URL = "https://rlcd-update.wickenzh.workers.dev/firmware/l
 const DEFAULT_SUMMARY_NOTE = "资源包可同时包含 GIF 动图和静图；写入设备后重启，固件会优先加载自定义资源。";
 const FIRMWARE_TARGETS = {
   bootloader: {
-    label: "0x0：bootloader.bin",
+    label: "0x0：bootloader 分区",
     kind: "bootloader",
     offsets: [0x0],
-    fileName: "bootloader.bin",
-    remoteImage: ""
+    remoteImage: "app"
   },
   partition: {
-    label: "0x8000：partition-table.bin",
+    label: "0x8000：partition-table 分区",
     kind: "partition-table",
     offsets: [0x8000],
-    fileName: "partition-table.bin",
-    remoteImage: ""
+    remoteImage: "app"
   },
   otaData: {
-    label: "0xf000：ota_data_initial.bin",
+    label: "0xf000：ota_data 分区",
     kind: "ota_data",
     offsets: [0xF000],
-    fileName: "ota_data_initial.bin",
-    remoteImage: ""
+    remoteImage: "app"
   },
   ota0: {
     label: "0x20000：app 到 ota_0",
     kind: "app",
     offsets: [0x20000],
-    fileName: "app bin",
     remoteImage: "app"
   },
   ota1: {
     label: "0x620000：app 到 ota_1",
     kind: "app",
     offsets: [0x620000],
-    fileName: "app bin",
     remoteImage: "app"
   },
   otaBoth: {
     label: "0x20000 + 0x620000：app 到 ota_0 / ota_1",
     kind: "app",
     offsets: [0x20000, 0x620000],
-    fileName: "app bin",
     remoteImage: "app"
   }
 };
@@ -1193,15 +1187,11 @@ function firmwareTargetOffsetText(target = currentFirmwareTarget()) {
 }
 
 function isLocalFirmwareFileAllowed(file, target = currentFirmwareTarget()) {
-  if (!file) return false;
-  const name = file.name.toLowerCase();
-  if (target.kind === "app") return name.endsWith(".bin");
-  return name === target.fileName.toLowerCase();
+  return Boolean(file && file.name.toLowerCase().endsWith(".bin"));
 }
 
 function firmwareTargetHint(target = currentFirmwareTarget()) {
-  if (target.kind === "app") return `${target.label}，请选择 app bin 或使用在线固件。`;
-  return `${target.label}，只能选择 ${target.fileName}。`;
+  return `${target.label}。请选择要写入该目标的 bin 文件。`;
 }
 
 function refreshFirmwareTargetState() {
@@ -1210,7 +1200,7 @@ function refreshFirmwareTargetState() {
   if ($("#firmwareSource").value === "remote") {
     if (remoteFirmwareManifest) setRemoteFirmwareManifest(remoteFirmwareOptions.indexOf(remoteFirmwareManifest));
     if (selectedFirmware?.source === "remote") {
-      setFirmwareReady(Boolean(verifiedFirmwareData && selectedFirmware.targetKind === target.kind));
+      setFirmwareReady(Boolean(verifiedFirmwareData));
     }
     return;
   }
@@ -1221,7 +1211,7 @@ function refreshFirmwareTargetState() {
     ? `${selectedFirmware.name} / ${formatBytes(selectedFirmware.size)}`
     : "等待固件文件";
   $("#flashResult").textContent = selectedFirmware
-    ? (isLocalFirmwareFileAllowed(file, target) ? `已选择自定义固件文件。${firmwareTargetHint(target)}` : `${firmwareTargetHint(target)} 当前文件不匹配。`)
+    ? `已选择自定义固件文件。${firmwareTargetHint(target)}`
     : firmwareTargetHint(target);
 }
 
@@ -1245,10 +1235,6 @@ function setRemoteFirmwareManifest(index = 0, note = "") {
     ? `在线固件：${remoteFirmwareManifest.version} / merged ${formatBytes(merged.size)}`
     : `在线固件：${remoteFirmwareManifest.version} / OTA app ${formatBytes(app.size)}`;
   const notes = remoteFirmwareManifest.notes ? `说明：${remoteFirmwareManifest.notes}。` : "";
-  if (!target.remoteImage) {
-    $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。当前目标：${target.label}，不支持在线 app 固件，请切换为自定义固件文件并选择 ${target.fileName}。${notes}`;
-    return;
-  }
   if (merged) {
     $("#flashResult").textContent = `${note}已选择 Cloudflare Worker 固件：${remoteFirmwareManifest.version}。当前目标：${target.label}。在线固件将使用 OTA app 包 ${truncateMiddle(app.assetName)}，SHA-256 ${formatSha(app.sha256)}；merged 包 ${truncateMiddle(merged.assetName)} 仅用于核对完整镜像信息。${notes}请先下载并校验，通过后可烧录。`;
   } else {
@@ -1466,7 +1452,7 @@ async function downloadRemoteFirmware() {
   const target = currentFirmwareTarget();
   const firmwareImage = target.remoteImage ? selectedRemoteFirmwareImage(target.remoteImage) : undefined;
   if (!firmwareImage) {
-    throw new Error(`${target.label} 不支持在线固件，请切换为自定义固件文件并选择 ${target.fileName}。`);
+    throw new Error("当前在线固件没有可下载的 app 包。");
   }
   $("#firmwareWriteState").textContent = "正在下载在线固件";
   $("#flashResult").textContent = `正在下载 ${remoteFirmwareManifest.version} 的 ${target.label} 固件...`;
@@ -1515,8 +1501,7 @@ async function downloadRemoteFirmware() {
     source: "remote",
     sha256: actualSha,
     version: remoteFirmwareManifest.version,
-    url: firmwareImage.url,
-    targetKind: target.kind
+    url: firmwareImage.url
   };
   setProgress("firmwareWrite", 100, 100);
   setFirmwareReady(true);
@@ -1600,19 +1585,26 @@ async function writeBinaryWithEsptool({ data, offset, baudRateValue, stateId, pe
     $(`#${stateId}`).textContent = "写入中";
     const binary = data instanceof Uint8Array ? data : new Uint8Array(data);
     const binaryString = uint8ArrayToBinaryString(binary);
+    const offsets = Array.isArray(offset) ? offset : [offset];
+    const totalBytes = binary.byteLength * offsets.length;
+    const writtenByFile = new Array(offsets.length).fill(0);
     await loader.writeFlash({
-      fileArray: [{ data: binaryString, address: offset }],
+      fileArray: offsets.map((address) => ({ data: binaryString, address })),
       flashSize: "keep",
       eraseAll: false,
       compress: true,
-      reportProgress: (_fileIndex, written, total) => {
-        const percent = total ? Math.min(100, Math.round(written / total * 100)) : 0;
+      reportProgress: (fileIndex, written, total) => {
+        writtenByFile[fileIndex] = written;
+        const writtenTotal = writtenByFile.reduce((sum, value) => sum + value, 0);
+        const progressTotal = totalBytes || total;
+        const percent = progressTotal ? Math.min(100, Math.round(writtenTotal / progressTotal * 100)) : 0;
         $(`#${progressId}`).value = percent;
         $(`#${percentId}`).textContent = `${percent}%`;
-        $(`#${stateId}`).textContent = `写入中 ${formatBytes(written)} / ${formatBytes(total)}`;
+        const targetText = offsets.length > 1 ? ` ${fileIndex + 1}/${offsets.length} ${hex(offsets[fileIndex])}` : "";
+        $(`#${stateId}`).textContent = `写入中${targetText} ${formatBytes(written)} / ${formatBytes(total)}`;
       }
     });
-    if (eraseSize) log(`写入范围：0x${offset.toString(16)} + ${formatBytes(eraseSize)}\n`);
+    if (eraseSize) offsets.forEach((address) => log(`写入范围：${hex(address)} + ${formatBytes(eraseSize)}\n`));
     $(`#${progressId}`).value = 100;
     $(`#${percentId}`).textContent = "100%";
     $(`#${stateId}`).textContent = "写入完成，正在复位";
@@ -1693,36 +1685,25 @@ async function writeFirmware() {
       $("#flashResult").textContent = "在线固件尚未下载并校验，请先点击“下载并校验固件”。";
       return;
     }
-    if (selectedFirmware.targetKind !== target.kind) {
-      $("#flashResult").textContent = `已校验的在线固件不匹配当前目标：${target.label}。请重新下载并校验。`;
-      setFirmwareReady(false);
-      return;
-    }
     data = verifiedFirmwareData;
   } else {
-    if (!isLocalFirmwareFileAllowed(selectedFirmware.file, target)) {
-      $("#flashResult").textContent = `${target.label} 只能写入 ${target.fileName}。请重新选择正确文件。`;
+    if (!isLocalFirmwareFileAllowed(selectedFirmware.file)) {
+      $("#flashResult").textContent = "请选择 .bin 固件文件。";
       return;
     }
     data = new Uint8Array(await selectedFirmware.file.arrayBuffer());
   }
   $("#firmwareWriteState").textContent = `准备写入 ${selectedFirmware.name}`;
   try {
-    for (let i = 0; i < target.offsets.length; i += 1) {
-      const offset = target.offsets[i];
-      $("#firmwareWriteState").textContent = target.offsets.length > 1
-        ? `写入 ${i + 1}/${target.offsets.length}：${hex(offset)}`
-        : `写入 ${hex(offset)}`;
-      await writeBinaryWithEsptool({
-        data,
-        offset,
-        baudRateValue: $("#firmwareBaudRate").value,
-        stateId: "firmwareWriteState",
-        percentId: "firmwareWritePercent",
-        progressId: "firmwareWriteProgress",
-        log: (text) => { $("#flashResult").textContent = text.trim() || $("#flashResult").textContent; }
-      });
-    }
+    await writeBinaryWithEsptool({
+      data,
+      offset: target.offsets,
+      baudRateValue: $("#firmwareBaudRate").value,
+      stateId: "firmwareWriteState",
+      percentId: "firmwareWritePercent",
+      progressId: "firmwareWriteProgress",
+      log: (text) => { $("#flashResult").textContent = text.trim() || $("#flashResult").textContent; }
+    });
     $("#flashResult").textContent = `${target.label} 烧录完成，设备正在重启。`;
   } catch (error) {
     $("#firmwareWriteState").textContent = "烧录失败";
@@ -1920,7 +1901,7 @@ $("#firmwareInput").addEventListener("change", () => {
   setFirmwareReady(Boolean(selectedFirmware && isLocalFirmwareFileAllowed(file, target)));
   $("#firmwareWriteState").textContent = selectedFirmware ? `${selectedFirmware.name} / ${formatBytes(selectedFirmware.size)}` : "等待固件文件";
   $("#flashResult").textContent = selectedFirmware
-    ? (isLocalFirmwareFileAllowed(file, target) ? `已选择自定义固件文件。${firmwareTargetHint(target)}` : `${firmwareTargetHint(target)} 当前文件不匹配。`)
+    ? `已选择自定义固件文件。${firmwareTargetHint(target)}`
     : firmwareTargetHint(target);
 });
 $("#writeFirmwareBtn").addEventListener("click", writeFirmware);
